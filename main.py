@@ -12,6 +12,8 @@ CORS(app)  # Enable CORS for all routes
 ESP32_IP = "192.168.4.1"
 
 # latest sensor values
+unreal_value = 0
+
 sensor_data = {
     "ir": 0,
     "red": 0,
@@ -24,6 +26,15 @@ data_lock = threading.Lock()
 
 # OSC Server configuration — port 9001 (Unreal Engine uses 9000)
 OSC_PORT = 9001
+
+# OSC callback for Unreal Engine value
+def unreal_value_handler(unused_addr, *args):
+    global unreal_value
+
+    if len(args) > 0:
+        unreal_value = int(args[0])
+        print(f"[UNREAL] Value received: {unreal_value}")
+
 
 # OSC callback for sensor data
 def osc_sensor_handler(unused_addr, *args):
@@ -75,6 +86,8 @@ def sensor():
 def data():
     with data_lock:
         snapshot = dict(sensor_data)
+
+    snapshot["unreal_value"] = unreal_value
     return jsonify(snapshot)
 
 
@@ -101,6 +114,7 @@ def start_osc_server():
     """Start OSC server on port 9001 (Unreal Engine has port 9000)"""
     disp = dispatcher.Dispatcher()
     disp.map("/sensor/value", osc_sensor_handler)
+    disp.map("/unreal/value", unreal_value_handler)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", OSC_PORT), disp)
     print(f"[OSC] Python listening on port {OSC_PORT} | Unreal Engine on port 9000")
