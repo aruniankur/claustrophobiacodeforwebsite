@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>ESP32 Sensor Monitor</title>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+    }
+    
+    .container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        padding: 40px;
+        max-width: 500px;
+        width: 100%;
+    }
+    
+    h1 {
+        color: #333;
+        margin-bottom: 30px;
+        text-align: center;
+        font-size: 28px;
+    }
+    
+    .sensor-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+    
+    .sensor-card {
+        background: #f8f9fa;
+        border: 2px solid #e9ecef;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+    
+    .sensor-card:hover {
+        border-color: #667eea;
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+    }
+    
+    .sensor-label {
+        color: #666;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+    }
+    
+    .sensor-value {
+        color: #667eea;
+        font-size: 32px;
+        font-weight: bold;
+    }
+    
+    .status {
+        text-align: center;
+        margin-bottom: 20px;
+        font-size: 12px;
+        color: #999;
+    }
+    
+    .status.connected {
+        color: #28a745;
+    }
+    
+    .status.disconnected {
+        color: #dc3545;
+    }
+    
+    .button-group {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .input-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+
+    .input-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .input-row label {
+        color: #555;
+        font-size: 13px;
+        font-weight: 600;
+        width: 60px;
+        flex-shrink: 0;
+    }
+
+    .input-row input {
+        flex: 1;
+        padding: 10px 14px;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        font-size: 14px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        transition: border-color 0.3s ease;
+    }
+
+    .input-row input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .input-row input::placeholder {
+        color: #bbb;
+    }
+
+    button {
+        flex: 1;
+        padding: 12px 20px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    #triggerBtn {
+        background: #667eea;
+        color: white;
+    }
+    
+    #triggerBtn:hover {
+        background: #5568d3;
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    #triggerBtn:active {
+        transform: translateY(0);
+    }
+    
+    #triggerBtn.loading {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <h1>Sensor Readings</h1>
+    
+    <div class="status" id="status">● Connecting...</div>
+    
+    <div class="sensor-grid">
+        <div class="sensor-card">
+            <div class="sensor-label">IR</div>
+            <div class="sensor-value" id="ir">--</div>
+        </div>
+        <div class="sensor-card">
+            <div class="sensor-label">RED</div>
+            <div class="sensor-value" id="red">--</div>
+        </div>
+        <div class="sensor-card">
+            <div class="sensor-label">BPM</div>
+            <div class="sensor-value" id="bpm">--</div>
+        </div>
+        <div class="sensor-card">
+            <div class="sensor-label">Finger Detected</div>
+            <div class="sensor-value" id="finger">--</div>
+        </div>
+    </div>
+    
+    <div class="input-section">
+        <div class="input-row">
+            <label>Input 1</label>
+            <input type="text" id="input1" placeholder="Value 1..." />
+        </div>
+        <div class="input-row">
+            <label>Input 2</label>
+            <input type="text" id="input2" placeholder="Value 2..." />
+        </div>
+        <div class="input-row">
+            <label>Input 3</label>
+            <input type="text" id="input3" placeholder="Value 3..." />
+        </div>
+    </div>
+    <div class="button-group">
+        <button id="triggerBtn" onclick="sendTrigger()">Send All to ESP32</button>
+    </div>
+</div>
+
+<script>
+
+let lastUpdate = Date.now();
+let isConnected = false;
+
+async function updateData() {
+    try {
+        const res = await fetch("/data");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        document.getElementById("ir").innerText = data.ir;
+        document.getElementById("red").innerText = data.red;
+        document.getElementById("bpm").innerText = data.bpm;
+        document.getElementById("finger").innerText = data.finger ? "Yes" : "No";
+
+        if (!isConnected) {
+            isConnected = true;
+            setStatus(true);
+        }
+        lastUpdate = Date.now();
+    } catch (err) {
+        console.error("Fetch error:", err);
+        if (Date.now() - lastUpdate > 5000) {
+            setStatus(false);
+        }
+    }
+}
+
+function setStatus(connected) {
+    const el = document.getElementById("status");
+    if (connected) {
+        el.textContent = "● Connected";
+        el.className = "status connected";
+    } else {
+        el.textContent = "● Disconnected";
+        el.className = "status disconnected";
+    }
+}
+
+async function sendTrigger() {
+    const v1 = document.getElementById("input1").value.trim();
+    const v2 = document.getElementById("input2").value.trim();
+    const v3 = document.getElementById("input3").value.trim();
+
+    if (!v1 && !v2 && !v3) {
+        alert("Please fill in at least one input!");
+        return;
+    }
+
+    const btn = document.getElementById("triggerBtn");
+    btn.disabled = true;
+    btn.textContent = "Sending...";
+
+    try {
+        const res = await fetch("/trigger", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ msg1: v1, msg2: v2, msg3: v3 })
+        });
+        const data = await res.json();
+        console.log("Trigger response:", data);
+        document.getElementById("input1").value = "";
+        document.getElementById("input2").value = "";
+        document.getElementById("input3").value = "";
+        alert("Sent to ESP32!");
+    } catch (err) {
+        console.error("Trigger error:", err);
+        alert("Failed to send!");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Send All to ESP32";
+    }
+}
+
+setInterval(updateData, 200);
+updateData();
+
+</script>
+
+</body>
