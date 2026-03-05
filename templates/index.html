@@ -188,13 +188,65 @@
         margin-bottom: 30px;
     }
 
-    .chart-section h2 {
+    .chart-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        gap: 15px;
+    }
+
+    .chart-header h2 {
         color: #555;
         font-size: 15px;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 1px;
-        margin-bottom: 12px;
+        flex: 1;
+    }
+
+    .window-selector {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .window-selector label {
+        font-size: 12px;
+        color: #666;
+        font-weight: 600;
+    }
+
+    .window-selector select {
+        padding: 5px 10px;
+        border: 2px solid #e9ecef;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #555;
+        background: white;
+        cursor: pointer;
+        transition: border-color 0.3s;
+    }
+
+    .window-selector select:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+
+    .live-badge {
+        font-size: 12px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 20px;
+        background: #d4edda;
+        color: #28a745;
+        transition: all 0.3s;
+    }
+
+    .live-badge.paused {
+        background: #f0f0f0;
+        color: #aaa;
     }
 
     .chart-wrapper {
@@ -208,6 +260,45 @@
     .chart-wrapper canvas {
         width: 100% !important;
         height: 140px !important;
+    }
+
+    .scroll-bar-section {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 4px;
+        margin-bottom: 6px;
+    }
+
+    .scroll-label {
+        font-size: 11px;
+        color: #999;
+        white-space: nowrap;
+    }
+
+    #scrollBar {
+        flex: 1;
+        height: 6px;
+        cursor: pointer;
+        accent-color: #667eea;
+    }
+
+    #backToLiveBtn {
+        display: none;
+        padding: 6px 14px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 8px;
+        width: 100%;
+    }
+
+    #backToLiveBtn:hover {
+        background: #5568d3;
     }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
@@ -270,7 +361,20 @@
     </div>
 
     <div class="chart-section">
-        <h2>Live Charts — 2 min window</h2>
+        <div class="chart-header">
+            <h2 id="chartTitle">Live Charts</h2>
+            <div class="window-selector">
+                <label>Window:</label>
+                <select id="windowSize" onchange="changeWindow()">
+                    <option value="30">30 sec</option>
+                    <option value="60">1 min</option>
+                    <option value="120" selected>2 min</option>
+                    <option value="300">5 min</option>
+                    <option value="600">10 min</option>
+                </select>
+            </div>
+            <span id="liveIndicator" class="live-badge">● LIVE</span>
+        </div>
         <div class="chart-wrapper">
             <canvas id="chartIR"></canvas>
         </div>
@@ -280,6 +384,12 @@
         <div class="chart-wrapper">
             <canvas id="chartBPM"></canvas>
         </div>
+        <div class="scroll-bar-section">
+            <span class="scroll-label">◀ Older</span>
+            <input type="range" id="scrollBar" min="0" max="0" value="0" />
+            <span class="scroll-label">Newer ▶</span>
+        </div>
+        <button id="backToLiveBtn" onclick="backToLive()">↩ Back to Live</button>
     </div>
 </div>
 
@@ -289,40 +399,58 @@ let lastUpdate = Date.now();
 let isConnected = false;
 
 // ── Chart config ──────────────────────────────────────────────
-const WINDOW_MS  = 2 * 60 * 1000;   // 2-minute rolling window
-const POLL_MS    = 200;              // matches setInterval below
+const POLL_MS = 200;
+let WINDOW_PTS = (2 * 60 * 1000) / POLL_MS;  // default: 600 pts = 2 min
+
+// Master arrays — never trimmed, hold all history
+const allLabels = [];
+const allIR     = [];
+const allRED    = [];
+const allBPM    = [];
+
+let scrollLocked = true;   // true = auto-follow live edge
+
+function updateTitle() {
+    const sec = parseInt(document.getElementById("windowSize").value);
+    const label = sec >= 60 ? `${sec / 60} min` : `${sec} sec`;
+    document.getElementById("chartTitle").textContent = `Live Charts — ${label} window`;
+}
+
+function changeWindow() {
+    const sec = parseInt(document.getElementById("windowSize").value);
+    WINDOW_PTS = (sec * 1000) / POLL_MS;
+    
+    updateTitle();
+    
+    // Recalculate scrollbar max
+    const bar = document.getElementById("scrollBar");
+    const maxScroll = Math.max(0, allLabels.length - WINDOW_PTS);
+    bar.max = maxScroll;
+    
+    if (scrollLocked) {
+        bar.value = maxScroll;
+        redrawCharts(maxScroll);
+    } else {
+        // Keep proportional position
+        const ratio = bar.value / (bar.max || 1);
+        bar.value = Math.floor(ratio * maxScroll);
+        redrawCharts(parseInt(bar.value));
+    }
+}
 
 function makeChart(canvasId, label, color) {
     const ctx = document.getElementById(canvasId).getContext("2d");
     return new Chart(ctx, {
         type: "line",
-        data: {
-            labels: [],
-            datasets: [{
-                label: label,
-                data: [],
-                borderColor: color,
-                backgroundColor: color + "22",
-                borderWidth: 2,
-                pointRadius: 0,
-                tension: 0.3,
-                fill: true
-            }]
-        },
+        data: { labels: [], datasets: [{ label, data: [],
+            borderColor: color, backgroundColor: color + "22",
+            borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true }] },
         options: {
-            animation: false,
-            responsive: true,
-            maintainAspectRatio: false,
+            animation: false, responsive: true, maintainAspectRatio: false,
             plugins: { legend: { labels: { color: "#555", font: { size: 12 } } } },
             scales: {
-                x: {
-                    ticks: { maxTicksLimit: 6, color: "#888", font: { size: 11 } },
-                    grid: { color: "#eee" }
-                },
-                y: {
-                    ticks: { color: "#888", font: { size: 11 } },
-                    grid: { color: "#eee" }
-                }
+                x: { ticks: { maxTicksLimit: 6, color: "#888", font: { size: 11 } }, grid: { color: "#eee" } },
+                y: { ticks: { color: "#888", font: { size: 11 } }, grid: { color: "#eee" } }
             }
         }
     });
@@ -332,31 +460,61 @@ const chartIR  = makeChart("chartIR",  "IR",  "#667eea");
 const chartRED = makeChart("chartRED", "RED", "#e74c3c");
 const chartBPM = makeChart("chartBPM", "BPM", "#27ae60");
 
-function pushPoint(chart, timeLabel, value) {
-    chart.data.labels.push(timeLabel);
-    chart.data.datasets[0].data.push(value);
+function redrawCharts(startIdx) {
+    const endIdx = Math.min(startIdx + WINDOW_PTS, allLabels.length);
+    const labels = allLabels.slice(startIdx, endIdx);
+    const irSlice  = allIR.slice(startIdx, endIdx);
+    const redSlice = allRED.slice(startIdx, endIdx);
+    const bpmSlice = allBPM.slice(startIdx, endIdx);
 
-    // Drop points older than 2 minutes
-    const cutoff = Date.now() - WINDOW_MS;
-    while (chart.data.labels.length > 0) {
-        // labels stored as epoch ms for comparison, display as HH:MM:SS
-        const oldest = chart.data.labels[0];
-        if (typeof oldest === "object" && oldest.ts < cutoff) {
-            chart.data.labels.shift();
-            chart.data.datasets[0].data.shift();
-        } else break;
-    }
-    chart.update("none");
+    [chartIR, chartRED, chartBPM].forEach((ch, i) => {
+        ch.data.labels = labels;
+        ch.data.datasets[0].data = [irSlice, redSlice, bpmSlice][i];
+        ch.update("none");
+    });
 }
 
-function timeLabel() {
+function addDataPoint(ir, red, bpm) {
     const now = new Date();
-    const ts  = now.getTime();
-    const str = now.toLocaleTimeString();
-    // Return object so we can store both display string and raw ms
-    const obj = new String(str);
-    obj.ts = ts;
-    return obj;
+    allLabels.push(now.toLocaleTimeString());
+    allIR.push(ir);
+    allRED.push(red);
+    allBPM.push(bpm);
+
+    const total    = allLabels.length;
+    const maxScroll = Math.max(0, total - WINDOW_PTS);
+
+    const bar = document.getElementById("scrollBar");
+    bar.max = maxScroll;
+
+    if (scrollLocked) {
+        bar.value = maxScroll;
+        redrawCharts(maxScroll);
+    }
+    // if not locked, don't touch bar.value — user is scrolling history
+}
+
+// Scrollbar interaction
+document.getElementById("scrollBar").addEventListener("input", function () {
+    const maxScroll = parseInt(this.max);
+    const val       = parseInt(this.value);
+    scrollLocked = (val >= maxScroll);
+
+    document.getElementById("liveIndicator").className =
+        "live-badge" + (scrollLocked ? "" : " paused");
+    document.getElementById("backToLiveBtn").style.display =
+        scrollLocked ? "none" : "block";
+
+    redrawCharts(val);
+});
+
+function backToLive() {
+    scrollLocked = true;
+    const bar = document.getElementById("scrollBar");
+    bar.value = bar.max;
+    document.getElementById("liveIndicator").className = "live-badge";
+    document.getElementById("backToLiveBtn").style.display = "none";
+    redrawCharts(parseInt(bar.max));
 }
 // ─────────────────────────────────────────────────────────────
 
@@ -372,10 +530,7 @@ async function updateData() {
         document.getElementById("finger").innerText = data.finger ? "Yes" : "No";
         document.getElementById("unreal_value").innerText = (data.unreal_value !== undefined) ? data.unreal_value : "--";
 
-        const t = timeLabel();
-        pushPoint(chartIR,  t, data.ir);
-        pushPoint(chartRED, t, data.red);
-        pushPoint(chartBPM, t, data.bpm);
+        addDataPoint(data.ir, data.red, data.bpm);
 
         if (!isConnected) {
             isConnected = true;
@@ -440,6 +595,7 @@ async function sendTrigger() {
 
 setInterval(updateData, 200);
 updateData();
+updateTitle();
 
 </script>
 
