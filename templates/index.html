@@ -56,6 +56,21 @@
         border-color: #667eea;
         box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
     }
+
+    .sensor-card.unreal {
+        background: #f0f4ff;
+        border-color: #764ba2;
+        grid-column: 1 / -1;
+    }
+
+    .sensor-card.unreal .sensor-label {
+        color: #764ba2;
+    }
+
+    .sensor-card.unreal .sensor-value {
+        color: #764ba2;
+        font-size: 40px;
+    }
     
     .sensor-label {
         color: #666;
@@ -192,6 +207,10 @@
             <div class="sensor-label">Finger Detected</div>
             <div class="sensor-value" id="finger">--</div>
         </div>
+        <div class="sensor-card unreal">
+            <div class="sensor-label">&#11041; Unreal Value</div>
+            <div class="sensor-value" id="unreal_value">--</div>
+        </div>
     </div>
     
     <div class="input-section">
@@ -228,6 +247,7 @@ async function updateData() {
         document.getElementById("red").innerText = data.red;
         document.getElementById("bpm").innerText = data.bpm;
         document.getElementById("finger").innerText = data.finger ? "Yes" : "No";
+        document.getElementById("unreal_value").innerText = (data.unreal_value !== undefined) ? data.unreal_value : "--";
 
         if (!isConnected) {
             isConnected = true;
