@@ -26,6 +26,7 @@ data_lock = threading.Lock()
 
 # OSC Server configuration — port 9001 (Unreal Engine uses 9000)
 OSC_PORT = 9001
+UNREAL_DIRECT_PORT = 9003   # Unreal sends directly here (no ESP32 relay)
 
 # OSC callback for Unreal Engine value
 def unreal_value_handler(unused_addr, *args):
@@ -111,23 +112,37 @@ def trigger():
 
 
 def start_osc_server():
-    """Start OSC server on port 9001 (Unreal Engine has port 9000)"""
+    """Start OSC server on port 9001 — receives ESP32 sensor data + relayed Unreal value"""
     disp = dispatcher.Dispatcher()
     disp.map("/sensor/value", osc_sensor_handler)
     disp.map("/unreal/value", unreal_value_handler)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", OSC_PORT), disp)
-    print(f"[OSC] Python listening on port {OSC_PORT} | Unreal Engine on port 9000")
+    print(f"[OSC] Python listening on port {OSC_PORT} (ESP32 sensor + relayed Unreal)")
+    server.serve_forever()
+
+
+def start_unreal_osc_server():
+    """Start dedicated OSC server on port 9003 — Unreal sends directly here"""
+    disp = dispatcher.Dispatcher()
+    disp.map("/unreal/value", unreal_value_handler)
+
+    server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", UNREAL_DIRECT_PORT), disp)
+    print(f"[OSC] Python listening on port {UNREAL_DIRECT_PORT} (direct from Unreal)")
     server.serve_forever()
 
 
 if __name__ == "__main__":
-    # Start OSC server in background thread
+    import time
+
+    # Start OSC server for ESP32 sensor data + relayed Unreal (port 9001)
     osc_thread = threading.Thread(target=start_osc_server, daemon=True)
     osc_thread.start()
-    
-    # Add small delay to ensure OSC thread starts
-    import time
+
+    # Start dedicated OSC server for direct Unreal messages (port 9003)
+    unreal_thread = threading.Thread(target=start_unreal_osc_server, daemon=True)
+    unreal_thread.start()
+
     time.sleep(0.5)
     
     print("[INFO] Starting Flask server on http://0.0.0.0:4000")

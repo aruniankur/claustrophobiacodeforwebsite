@@ -116,7 +116,7 @@ void processHeartbeat(long irValue) {
   beatPrev = beatNow;
 }
 
-void unrealValue(OSCMessage& msg) {
+void unrealValue(OscMessage& msg) {
   int value = msg.arg<int>(0);
 
   Serial.println("===== VALUE FROM UNREAL =====");
