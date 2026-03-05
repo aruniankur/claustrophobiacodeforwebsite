@@ -25,7 +25,7 @@
         border-radius: 15px;
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         padding: 40px;
-        max-width: 500px;
+        max-width: 900px;
         width: 100%;
     }
     
@@ -128,7 +128,8 @@
         flex-shrink: 0;
     }
 
-    .input-row input {
+    .input-row input,
+    .input-row select {
         flex: 1;
         padding: 10px 14px;
         border: 2px solid #e9ecef;
@@ -136,9 +137,11 @@
         font-size: 14px;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         transition: border-color 0.3s ease;
+        background: white;
     }
 
-    .input-row input:focus {
+    .input-row input:focus,
+    .input-row select:focus {
         outline: none;
         border-color: #667eea;
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -180,7 +183,34 @@
         opacity: 0.6;
         cursor: not-allowed;
     }
+
+    .chart-section {
+        margin-bottom: 30px;
+    }
+
+    .chart-section h2 {
+        color: #555;
+        font-size: 15px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 12px;
+    }
+
+    .chart-wrapper {
+        background: #f8f9fa;
+        border: 2px solid #e9ecef;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 14px;
+    }
+
+    .chart-wrapper canvas {
+        width: 100% !important;
+        height: 140px !important;
+    }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -215,20 +245,41 @@
     
     <div class="input-section">
         <div class="input-row">
-            <label>Input 1</label>
-            <input type="text" id="input1" placeholder="Value 1..." />
+            <label>Language</label>
+            <select id="input1">
+                <option value="1">English</option>
+                <option value="2">Hindi</option>
+                <option value="3">Bengali</option>
+            </select>
         </div>
         <div class="input-row">
-            <label>Input 2</label>
-            <input type="text" id="input2" placeholder="Value 2..." />
+            <label>Value 2</label>
+            <input type="number" id="input2" placeholder="Integer..." />
         </div>
         <div class="input-row">
-            <label>Input 3</label>
-            <input type="text" id="input3" placeholder="Value 3..." />
+            <label>Value 3</label>
+            <input type="number" id="input3" placeholder="Integer..." />
+        </div>
+        <div class="input-row">
+            <label>Value 4</label>
+            <input type="number" id="input4" placeholder="Integer..." />
         </div>
     </div>
     <div class="button-group">
         <button id="triggerBtn" onclick="sendTrigger()">Send All to ESP32</button>
+    </div>
+
+    <div class="chart-section">
+        <h2>Live Charts — 2 min window</h2>
+        <div class="chart-wrapper">
+            <canvas id="chartIR"></canvas>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="chartRED"></canvas>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="chartBPM"></canvas>
+        </div>
     </div>
 </div>
 
@@ -236,6 +287,78 @@
 
 let lastUpdate = Date.now();
 let isConnected = false;
+
+// ── Chart config ──────────────────────────────────────────────
+const WINDOW_MS  = 2 * 60 * 1000;   // 2-minute rolling window
+const POLL_MS    = 200;              // matches setInterval below
+
+function makeChart(canvasId, label, color) {
+    const ctx = document.getElementById(canvasId).getContext("2d");
+    return new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [{
+                label: label,
+                data: [],
+                borderColor: color,
+                backgroundColor: color + "22",
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: {
+            animation: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: "#555", font: { size: 12 } } } },
+            scales: {
+                x: {
+                    ticks: { maxTicksLimit: 6, color: "#888", font: { size: 11 } },
+                    grid: { color: "#eee" }
+                },
+                y: {
+                    ticks: { color: "#888", font: { size: 11 } },
+                    grid: { color: "#eee" }
+                }
+            }
+        }
+    });
+}
+
+const chartIR  = makeChart("chartIR",  "IR",  "#667eea");
+const chartRED = makeChart("chartRED", "RED", "#e74c3c");
+const chartBPM = makeChart("chartBPM", "BPM", "#27ae60");
+
+function pushPoint(chart, timeLabel, value) {
+    chart.data.labels.push(timeLabel);
+    chart.data.datasets[0].data.push(value);
+
+    // Drop points older than 2 minutes
+    const cutoff = Date.now() - WINDOW_MS;
+    while (chart.data.labels.length > 0) {
+        // labels stored as epoch ms for comparison, display as HH:MM:SS
+        const oldest = chart.data.labels[0];
+        if (typeof oldest === "object" && oldest.ts < cutoff) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+        } else break;
+    }
+    chart.update("none");
+}
+
+function timeLabel() {
+    const now = new Date();
+    const ts  = now.getTime();
+    const str = now.toLocaleTimeString();
+    // Return object so we can store both display string and raw ms
+    const obj = new String(str);
+    obj.ts = ts;
+    return obj;
+}
+// ─────────────────────────────────────────────────────────────
 
 async function updateData() {
     try {
@@ -248,6 +371,11 @@ async function updateData() {
         document.getElementById("bpm").innerText = data.bpm;
         document.getElementById("finger").innerText = data.finger ? "Yes" : "No";
         document.getElementById("unreal_value").innerText = (data.unreal_value !== undefined) ? data.unreal_value : "--";
+
+        const t = timeLabel();
+        pushPoint(chartIR,  t, data.ir);
+        pushPoint(chartRED, t, data.red);
+        pushPoint(chartBPM, t, data.bpm);
 
         if (!isConnected) {
             isConnected = true;
@@ -274,12 +402,13 @@ function setStatus(connected) {
 }
 
 async function sendTrigger() {
-    const v1 = document.getElementById("input1").value.trim();
+    const v1 = parseInt(document.getElementById("input1").value);  // language: 1/2/3
     const v2 = document.getElementById("input2").value.trim();
     const v3 = document.getElementById("input3").value.trim();
+    const v4 = document.getElementById("input4").value.trim();
 
-    if (!v1 && !v2 && !v3) {
-        alert("Please fill in at least one input!");
+    if (!v2 && !v3 && !v4) {
+        alert("Please fill in at least one value!");
         return;
     }
 
@@ -291,13 +420,14 @@ async function sendTrigger() {
         const res = await fetch("/trigger", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ msg1: v1, msg2: v2, msg3: v3 })
+            body: JSON.stringify({ msg1: v1, msg2: parseInt(v2) || 0, msg3: parseInt(v3) || 0, msg4: parseInt(v4) || 0 })
         });
         const data = await res.json();
         console.log("Trigger response:", data);
-        document.getElementById("input1").value = "";
+        document.getElementById("input1").value = "1";
         document.getElementById("input2").value = "";
         document.getElementById("input3").value = "";
+        document.getElementById("input4").value = "";
         alert("Sent to ESP32!");
     } catch (err) {
         console.error("Trigger error:", err);

@@ -97,15 +97,16 @@ def data():
 def trigger():
     try:
         data = request.json or {}
-        msg1 = data.get("msg1", "")
-        msg2 = data.get("msg2", "")
-        msg3 = data.get("msg3", "")
+        msg1 = data.get("msg1", 0)
+        msg2 = data.get("msg2", 0)
+        msg3 = data.get("msg3", 0)
+        msg4 = data.get("msg4", 0)
 
         url = f"http://{ESP32_IP}/message"
-        response = requests.get(url, params={"msg1": msg1, "msg2": msg2, "msg3": msg3}, timeout=5)
+        response = requests.get(url, params={"msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}, timeout=5)
 
-        print(f"[TRIGGER] msg1='{msg1}' msg2='{msg2}' msg3='{msg3}'")
-        return jsonify({"status": "sent", "msg1": msg1, "msg2": msg2, "msg3": msg3}), 200
+        print(f"[TRIGGER] msg1(lang)={msg1} msg2={msg2} msg3={msg3} msg4={msg4}")
+        return jsonify({"status": "sent", "msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}), 200
     except Exception as e:
         print(f"[TRIGGER] Error: {str(e)}")
         return jsonify({"status": "failed", "error": str(e)}), 500

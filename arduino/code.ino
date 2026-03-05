@@ -57,19 +57,21 @@ IPAddress computeBroadcast(IPAddress ip, IPAddress mask) {
 
 // ====== HTTP Handlers ======
 void handleMessage() {
-  String msg1 = server.hasArg("msg1") ? server.arg("msg1") : "";
-  String msg2 = server.hasArg("msg2") ? server.arg("msg2") : "";
-  String msg3 = server.hasArg("msg3") ? server.arg("msg3") : "";
+  String msg1 = server.hasArg("msg1") ? server.arg("msg1") : "0";
+  String msg2 = server.hasArg("msg2") ? server.arg("msg2") : "0";
+  String msg3 = server.hasArg("msg3") ? server.arg("msg3") : "0";
+  String msg4 = server.hasArg("msg4") ? server.arg("msg4") : "0";
 
   Serial.println();
   Serial.println("==============================");
-  Serial.print("INPUT 1: "); Serial.println(msg1);
-  Serial.print("INPUT 2: "); Serial.println(msg2);
-  Serial.print("INPUT 3: "); Serial.println(msg3);
+  Serial.print("LANGUAGE (1=EN,2=HI,3=BN): "); Serial.println(msg1);
+  Serial.print("VALUE 2: "); Serial.println(msg2);
+  Serial.print("VALUE 3: "); Serial.println(msg3);
+  Serial.print("VALUE 4: "); Serial.println(msg4);
   Serial.println("==============================");
 
   OscWiFi.send(ipStr, UNREAL_PORT, "/text/input",
-               msg1.c_str(), msg2.c_str(), msg3.c_str());
+               msg1.toInt(), msg2.toInt(), msg3.toInt(), msg4.toInt());
   server.send(200, "text/plain", "{\"status\": \"ok\"}");
 }
 
