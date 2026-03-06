@@ -124,11 +124,11 @@
         color: #555;
         font-size: 13px;
         font-weight: 600;
-        width: 60px;
+        width: 80px;
         flex-shrink: 0;
     }
 
-    .input-row input,
+    .input-row input[type="number"],
     .input-row select {
         flex: 1;
         padding: 10px 14px;
@@ -138,6 +138,20 @@
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         transition: border-color 0.3s ease;
         background: white;
+    }
+
+    .input-row input[type="range"] {
+        flex: 1;
+        cursor: pointer;
+        accent-color: #667eea;
+    }
+
+    .value-display {
+        min-width: 30px;
+        text-align: right;
+        font-size: 14px;
+        font-weight: 600;
+        color: #667eea;
     }
 
     .input-row input:focus,
@@ -342,18 +356,22 @@
                 <option value="2">Hindi</option>
                 <option value="3">Bengali</option>
             </select>
+            <div class="value-display" style="visibility:hidden">--</div>
         </div>
         <div class="input-row">
-            <label>Value 2</label>
-            <input type="number" id="input2" placeholder="Integer..." />
+            <label>Size</label>
+            <input type="range" id="input2" min="60" max="120" value="80" oninput="updateVal('input2','val2')" />
+            <div class="value-display" id="val2">80</div>
         </div>
         <div class="input-row">
-            <label>Value 3</label>
-            <input type="number" id="input3" placeholder="Integer..." />
+            <label>Time</label>
+            <input type="range" id="input3" min="5" max="20" value="10" oninput="updateVal('input3','val3')" />
+            <div class="value-display" id="val3">10</div>
         </div>
         <div class="input-row">
-            <label>Value 4</label>
-            <input type="number" id="input4" placeholder="Integer..." />
+            <label>Intensity</label>
+            <input type="range" id="input4" min="40" max="80" value="60" oninput="updateVal('input4','val4')" />
+            <div class="value-display" id="val4">60</div>
         </div>
     </div>
     <div class="button-group">
@@ -397,6 +415,10 @@
 
 let lastUpdate = Date.now();
 let isConnected = false;
+
+function updateVal(inputId, displayId) {
+    document.getElementById(displayId).textContent = document.getElementById(inputId).value;
+}
 
 // ── Chart config ──────────────────────────────────────────────
 const POLL_MS = 200;
@@ -558,14 +580,9 @@ function setStatus(connected) {
 
 async function sendTrigger() {
     const v1 = parseInt(document.getElementById("input1").value);  // language: 1/2/3
-    const v2 = document.getElementById("input2").value.trim();
-    const v3 = document.getElementById("input3").value.trim();
-    const v4 = document.getElementById("input4").value.trim();
-
-    if (!v2 && !v3 && !v4) {
-        alert("Please fill in at least one value!");
-        return;
-    }
+    const v2 = document.getElementById("input2").value;
+    const v3 = document.getElementById("input3").value;
+    const v4 = document.getElementById("input4").value;
 
     const btn = document.getElementById("triggerBtn");
     btn.disabled = true;
@@ -575,14 +592,10 @@ async function sendTrigger() {
         const res = await fetch("/trigger", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ msg1: v1, msg2: parseInt(v2) || 0, msg3: parseInt(v3) || 0, msg4: parseInt(v4) || 0 })
+            body: JSON.stringify({ msg1: v1, msg2: parseInt(v2), msg3: parseInt(v3), msg4: parseInt(v4) })
         });
         const data = await res.json();
         console.log("Trigger response:", data);
-        document.getElementById("input1").value = "1";
-        document.getElementById("input2").value = "";
-        document.getElementById("input3").value = "";
-        document.getElementById("input4").value = "";
         alert("Sent to ESP32!");
     } catch (err) {
         console.error("Trigger error:", err);
