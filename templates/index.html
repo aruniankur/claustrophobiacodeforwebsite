@@ -243,6 +243,17 @@
         box-shadow: 0 3px 10px rgba(102,126,234,0.3);
     }
 
+    #controlBtn {
+        background: linear-gradient(135deg, #1aa06a 0%, #118756 100%);
+        color: white;
+        box-shadow: 0 3px 10px rgba(26,160,106,0.28);
+    }
+
+    #controlBtn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 5px 16px rgba(26,160,106,0.42);
+    }
+
     #triggerBtn:hover {
         transform: translateY(-1px);
         box-shadow: 0 5px 16px rgba(102,126,234,0.45);
@@ -478,6 +489,9 @@
         <div class="left-column">
             <div class="panel-box">
                 <div class="panel-title">Control Panel</div>
+                <div class="button-group" style="margin-bottom:12px;">
+                    <button id="controlBtn" onclick="startControlCapture()">Control (20s)</button>
+                </div>
                 <div class="input-section">
                     <div class="input-row">
                         <label>Language</label>
@@ -586,6 +600,7 @@ let isServerConnected = false;
 const sendHistory = [];
 let historySignature = "";
 let isSendingNow = false;
+let isStartingControlNow = false;
 
 const languageMap = {
     1: "English",
@@ -745,7 +760,7 @@ async function updateData() {
             }
         }
 
-        updateTriggerButtonState(data.capture_in_progress, data.capture_remaining_sec);
+        updateTriggerButtonState(data.capture_in_progress, data.capture_remaining_sec, data.capture_mode);
 
         addDataPoint(data.ir, data.red, data.bpm);
 
@@ -780,22 +795,50 @@ function setStatus(espConnected, sensorAgeSec = null, serverOffline = false) {
     }
 }
 
-function updateTriggerButtonState(captureInProgress, remainingSec) {
+function updateTriggerButtonState(captureInProgress, remainingSec, captureMode) {
     const btn = document.getElementById("triggerBtn");
+    const controlBtn = document.getElementById("controlBtn");
+
     if (isSendingNow) {
         btn.disabled = true;
         btn.textContent = "Sending...";
+        if (controlBtn) {
+            controlBtn.disabled = true;
+        }
+        return;
+    }
+
+    if (isStartingControlNow) {
+        btn.disabled = true;
+        btn.textContent = "Send All to ESP32";
+        if (controlBtn) {
+            controlBtn.disabled = true;
+            controlBtn.textContent = "Starting...";
+        }
         return;
     }
 
     if (captureInProgress) {
         btn.disabled = true;
-        btn.textContent = `Capture Running (${remainingSec || 0}s)`;
+        btn.textContent = captureMode === "experiment"
+            ? `Capture Running (${remainingSec || 0}s)`
+            : "Send All to ESP32";
+
+        if (controlBtn) {
+            controlBtn.disabled = true;
+            controlBtn.textContent = captureMode === "control"
+                ? `Control Running (${remainingSec || 0}s)`
+                : "Control (20s)";
+        }
         return;
     }
 
     btn.disabled = false;
     btn.textContent = "Send All to ESP32";
+    if (controlBtn) {
+        controlBtn.disabled = false;
+        controlBtn.textContent = "Control (20s)";
+    }
 }
 
 function renderLastSentValues(v1, v2, v3, v4) {
@@ -861,7 +904,7 @@ async function sendTrigger() {
     const v4 = document.getElementById("input4").value;
 
     isSendingNow = true;
-    updateTriggerButtonState(false, 0);
+    updateTriggerButtonState(false, 0, null);
 
     try {
         const res = await fetch("/trigger", {
@@ -889,6 +932,37 @@ async function sendTrigger() {
         alert("Failed to send!");
     } finally {
         isSendingNow = false;
+        await updateData();
+    }
+}
+
+async function startControlCapture() {
+    isStartingControlNow = true;
+    updateTriggerButtonState(false, 0, null);
+
+    try {
+        const res = await fetch("/control-capture", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+
+        if (res.status === 409) {
+            const busyData = await res.json();
+            alert(`Capture in progress. Wait ${busyData.remaining_sec || 0}s`);
+            return;
+        }
+
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+
+        await updateData();
+        alert("Control capture started for 20 sec.");
+    } catch (err) {
+        console.error("Control capture error:", err);
+        alert("Failed to start control capture!");
+    } finally {
+        isStartingControlNow = false;
         await updateData();
     }
 }

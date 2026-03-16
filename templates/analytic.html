@@ -80,11 +80,21 @@
         border: 1px solid #dbe3f1;
         border-radius: 10px;
         padding: 12px;
+        margin-bottom: 10px;
     }
 
-    #chart {
+    .chart-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #2e4160;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+    }
+
+    .chart-canvas {
         width: 100% !important;
-        height: 360px !important;
+        height: 220px !important;
     }
 
     .msg {
@@ -95,7 +105,7 @@
 
     @media (max-width: 700px) {
         .meta-grid { grid-template-columns: 1fr; }
-        #chart { height: 280px !important; }
+        .chart-canvas { height: 180px !important; }
     }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
@@ -113,7 +123,18 @@
     </div>
 
     <div class="chart-box">
-        <canvas id="chart"></canvas>
+        <div class="chart-title">IR</div>
+        <canvas id="chartIR" class="chart-canvas"></canvas>
+    </div>
+
+    <div class="chart-box">
+        <div class="chart-title">RED</div>
+        <canvas id="chartRED" class="chart-canvas"></canvas>
+    </div>
+
+    <div class="chart-box">
+        <div class="chart-title">BPM</div>
+        <canvas id="chartBPM" class="chart-canvas"></canvas>
         <div class="msg" id="statusMsg">Loading...</div>
     </div>
 </div>
@@ -140,9 +161,10 @@ function setHtml(id, html) {
     document.getElementById(id).innerHTML = html;
 }
 
-function buildChart(irVals, redVals, bpmVals) {
-    const labels = Array.from({ length: irVals.length }, (_, i) => i + 1);
-    const ctx = document.getElementById("chart").getContext("2d");
+function buildSingleChart(canvasId, label, expVals, controlVals, expColor) {
+    const maxLen = Math.max(expVals.length, controlVals.length);
+    const labels = Array.from({ length: maxLen }, (_, i) => i + 1);
+    const ctx = document.getElementById(canvasId).getContext("2d");
 
     new Chart(ctx, {
         type: "line",
@@ -150,28 +172,20 @@ function buildChart(irVals, redVals, bpmVals) {
             labels,
             datasets: [
                 {
-                    label: "IR",
-                    data: irVals,
-                    borderColor: "#4f67d8",
-                    backgroundColor: "#4f67d822",
+                    label: `${label} (Experiment)`,
+                    data: expVals,
+                    borderColor: expColor,
+                    backgroundColor: expColor + "22",
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.25
                 },
                 {
-                    label: "RED",
-                    data: redVals,
-                    borderColor: "#d64b4b",
-                    backgroundColor: "#d64b4b22",
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.25
-                },
-                {
-                    label: "BPM",
-                    data: bpmVals,
-                    borderColor: "#22a266",
-                    backgroundColor: "#22a26622",
+                    label: `${label} (Control)`,
+                    data: controlVals,
+                    borderColor: "#7c869a",
+                    backgroundColor: "#7c869a22",
+                    borderDash: [6, 4],
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.25
@@ -219,6 +233,10 @@ async function init() {
         const irVals = Array.isArray(data.ir_values) ? data.ir_values : [];
         const redVals = Array.isArray(data.red_values) ? data.red_values : [];
         const bpmVals = Array.isArray(data.bpm_values) ? data.bpm_values : [];
+        const control = data.control || {};
+        const controlIrVals = Array.isArray(control.ir_values) ? control.ir_values : [];
+        const controlRedVals = Array.isArray(control.red_values) ? control.red_values : [];
+        const controlBpmVals = Array.isArray(control.bpm_values) ? control.bpm_values : [];
 
         setHtml("settingsCard", `
             <div class="meta-row"><span>Language</span><span>${languageMap[data.msg1] || data.msg1}</span></div>
@@ -235,11 +253,15 @@ async function init() {
             <div class="meta-row"><span>Ended</span><span>${fmt(data.capture_end_at)}</span></div>
             <div class="meta-row"><span>Status</span><span>${data.capture_complete ? "Complete" : "Running"}</span></div>
             <div class="meta-row"><span>Total Samples</span><span>${irVals.length}</span></div>
+            <div class="meta-row"><span>Control Found</span><span>${control.exists ? "Yes" : "No"}</span></div>
+            <div class="meta-row"><span>Control Samples</span><span>${controlIrVals.length}</span></div>
         `);
 
-        buildChart(irVals, redVals, bpmVals);
+        buildSingleChart("chartIR", "IR", irVals, controlIrVals, "#4f67d8");
+        buildSingleChart("chartRED", "RED", redVals, controlRedVals, "#d64b4b");
+        buildSingleChart("chartBPM", "BPM", bpmVals, controlBpmVals, "#22a266");
         document.getElementById("statusMsg").textContent = irVals.length
-            ? "Loaded captured IR/RED/BPM samples."
+            ? "Loaded experiment and control samples for comparison."
             : "No samples captured yet for this send.";
     } catch (err) {
         document.getElementById("statusMsg").textContent = `Failed to load analytics: ${err.message}`;

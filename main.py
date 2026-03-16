@@ -37,6 +37,34 @@ ESP32_HTTP_STALE_SECONDS = 15
 # Active capture session state. Only one capture can run at a time.
 active_capture = None
 
+
+def _build_capture_entry(msg1, msg2, msg3, msg4, capture_delay_sec, capture_duration_sec, start_ts, end_ts):
+    return {
+        "msg1": int(msg1),
+        "msg2": int(msg2),
+        "msg3": int(msg3),
+        "msg4": int(msg4),
+        "sent_at": datetime.utcnow().isoformat() + "Z",
+        "capture_delay_sec": capture_delay_sec,
+        "capture_duration_sec": capture_duration_sec,
+        "capture_complete": False,
+        "capture_started_at": datetime.utcfromtimestamp(start_ts).isoformat() + "Z",
+        "capture_end_at": datetime.utcfromtimestamp(end_ts).isoformat() + "Z",
+        "capture_completed_at": None,
+        "ir_values": [],
+        "red_values": [],
+        "bpm_values": []
+    }
+
+
+def _prune_history_locked():
+    """Keep only the latest MAX_SENT_HISTORY experiment entries and always preserve 'control'."""
+    experiment_keys = [k for k in sent_values_history.keys() if k != "control"]
+    while len(experiment_keys) > MAX_SENT_HISTORY:
+        oldest_id = experiment_keys.pop(0)
+        if oldest_id in sent_values_history:
+            del sent_values_history[oldest_id]
+
 # Lock to protect sensor_data across threads
 data_lock = threading.Lock()
 
@@ -90,7 +118,8 @@ def osc_sensor_handler(unused_addr, *args):
                 active_capture = None
             elif now >= active_capture["start_ts"]:
                 entry = sent_values_history.get(active_capture["entry_id"])
-                if entry:
+                # Keep capture timer running, but only store samples when finger is detected.
+                if entry and int(sensor_data.get("finger", 0)) == 1:
                     entry["ir_values"].append(int(sensor_data["ir"]))
                     entry["red_values"].append(int(sensor_data["red"]))
                     entry["bpm_values"].append(float(sensor_data["bpm"]))
@@ -162,6 +191,7 @@ def data():
                 "samples": len(values.get("ir_values", []))
             }
             for send_id, values in reversed(history_items)
+            if send_id != "control"
         ]
         sensor_age_sec = round(now - last_sensor_update_ts, 2) if last_sensor_update_ts else None
         http_age_sec = round(now - last_esp32_http_ok_ts, 2) if last_esp32_http_ok_ts else None
@@ -171,6 +201,16 @@ def data():
         if active_capture:
             capture_remaining_sec = max(0, int(active_capture["end_ts"] - now))
             capture_entry_id = active_capture["entry_id"]
+        capture_mode = active_capture["mode"] if active_capture else None
+
+        control_entry = sent_values_history.get("control")
+        control_snapshot = None
+        if control_entry:
+            control_snapshot = {
+                "sent_at": control_entry.get("sent_at"),
+                "capture_complete": control_entry.get("capture_complete", False),
+                "samples": len(control_entry.get("ir_values", []))
+            }
 
     esp32_connected = False
     if sensor_age_sec is not None and sensor_age_sec <= SENSOR_STALE_SECONDS:
@@ -186,6 +226,8 @@ def data():
     snapshot["capture_in_progress"] = capture_in_progress
     snapshot["capture_remaining_sec"] = capture_remaining_sec
     snapshot["capture_entry_id"] = capture_entry_id
+    snapshot["capture_mode"] = capture_mode
+    snapshot["control_capture"] = control_snapshot
     return jsonify(snapshot)
 
 
@@ -215,44 +257,75 @@ def trigger():
         with data_lock:
             sent_values_counter += 1
             new_id = str(sent_values_counter)
-            capture_duration_sec = int(msg3) * 20
+            capture_duration_sec = int(msg3) * 12
             capture_start_ts = time.time() + 2
             capture_end_ts = capture_start_ts + capture_duration_sec
 
-            sent_values_history[new_id] = {
-                "msg1": int(msg1),
-                "msg2": int(msg2),
-                "msg3": int(msg3),
-                "msg4": int(msg4),
-                "sent_at": datetime.utcnow().isoformat() + "Z",
-                "capture_delay_sec": 2,
-                "capture_duration_sec": capture_duration_sec,
-                "capture_complete": False,
-                "capture_started_at": datetime.utcfromtimestamp(capture_start_ts).isoformat() + "Z",
-                "capture_end_at": datetime.utcfromtimestamp(capture_end_ts).isoformat() + "Z",
-                "capture_completed_at": None,
-                "ir_values": [],
-                "red_values": [],
-                "bpm_values": []
-            }
+            sent_values_history[new_id] = _build_capture_entry(
+                msg1=msg1,
+                msg2=msg2,
+                msg3=msg3,
+                msg4=msg4,
+                capture_delay_sec=2,
+                capture_duration_sec=capture_duration_sec,
+                start_ts=capture_start_ts,
+                end_ts=capture_end_ts,
+            )
 
             active_capture = {
                 "entry_id": new_id,
+                "mode": "experiment",
                 "start_ts": capture_start_ts,
                 "end_ts": capture_end_ts
             }
 
             # Keep memory bounded by removing oldest records.
-            while len(sent_values_history) > MAX_SENT_HISTORY:
-                oldest_id = next(iter(sent_values_history))
-                del sent_values_history[oldest_id]
-                if active_capture and active_capture["entry_id"] == oldest_id:
-                    active_capture = None
+            _prune_history_locked()
 
         print(f"[TRIGGER] msg1(lang)={msg1} msg2={msg2} msg3={msg3} msg4={msg4}")
         return jsonify({"status": "sent", "id": new_id, "msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}), 200
     except Exception as e:
         print(f"[TRIGGER] Error: {str(e)}")
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+@app.route("/control-capture", methods=["POST"])
+def control_capture():
+    try:
+        global active_capture
+
+        with data_lock:
+            _finalize_capture_if_expired(time.time())
+            if active_capture:
+                remaining = max(0, int(active_capture["end_ts"] - time.time()))
+                return jsonify({"status": "busy", "remaining_sec": remaining}), 409
+
+            capture_duration_sec = 20
+            capture_start_ts = time.time()
+            capture_end_ts = capture_start_ts + capture_duration_sec
+
+            sent_values_history["control"] = _build_capture_entry(
+                msg1=0,
+                msg2=0,
+                msg3=0,
+                msg4=0,
+                capture_delay_sec=0,
+                capture_duration_sec=capture_duration_sec,
+                start_ts=capture_start_ts,
+                end_ts=capture_end_ts,
+            )
+
+            active_capture = {
+                "entry_id": "control",
+                "mode": "control",
+                "start_ts": capture_start_ts,
+                "end_ts": capture_end_ts
+            }
+
+        print("[CONTROL] Capture started for 20s")
+        return jsonify({"status": "started", "id": "control", "duration_sec": 20}), 200
+    except Exception as e:
+        print(f"[CONTROL] Error: {str(e)}")
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
@@ -284,6 +357,16 @@ def analytic_data(send_id):
             "ir_values": list(entry.get("ir_values", [])),
             "red_values": list(entry.get("red_values", [])),
             "bpm_values": list(entry.get("bpm_values", []))
+        }
+
+        control_entry = sent_values_history.get("control")
+        payload["control"] = {
+            "exists": bool(control_entry),
+            "capture_complete": control_entry.get("capture_complete", False) if control_entry else False,
+            "sent_at": control_entry.get("sent_at") if control_entry else None,
+            "ir_values": list(control_entry.get("ir_values", [])) if control_entry else [],
+            "red_values": list(control_entry.get("red_values", [])) if control_entry else [],
+            "bpm_values": list(control_entry.get("bpm_values", [])) if control_entry else []
         }
 
     return jsonify(payload)
