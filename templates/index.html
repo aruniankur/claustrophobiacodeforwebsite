@@ -582,8 +582,7 @@
 
 <script>
 
-let lastUpdate = Date.now();
-let isConnected = false;
+let isServerConnected = false;
 const sendHistory = [];
 let historySignature = "";
 
@@ -740,26 +739,33 @@ async function updateData() {
 
         addDataPoint(data.ir, data.red, data.bpm);
 
-        if (!isConnected) {
-            isConnected = true;
-            setStatus(true);
-        }
-        lastUpdate = Date.now();
+        isServerConnected = true;
+        setStatus(Boolean(data.esp32_connected), data.sensor_age_sec);
     } catch (err) {
         console.error("Fetch error:", err);
-        if (Date.now() - lastUpdate > 5000) {
-            setStatus(false);
-        }
+        isServerConnected = false;
+        setStatus(false, null, true);
     }
 }
 
-function setStatus(connected) {
+function setStatus(espConnected, sensorAgeSec = null, serverOffline = false) {
     const el = document.getElementById("status");
-    if (connected) {
-        el.textContent = "● Connected";
+
+    if (serverOffline) {
+        el.textContent = "● Server Offline";
+        el.className = "status disconnected";
+        return;
+    }
+
+    if (espConnected) {
+        if (sensorAgeSec !== null) {
+            el.textContent = `● ESP32 Connected (${sensorAgeSec}s)`;
+        } else {
+            el.textContent = "● ESP32 Connected";
+        }
         el.className = "status connected";
     } else {
-        el.textContent = "● Disconnected";
+        el.textContent = "● ESP32 Disconnected";
         el.className = "status disconnected";
     }
 }
@@ -841,7 +847,7 @@ async function sendTrigger() {
     }
 }
 
-setInterval(updateData, 200);
+setInterval(updateData, 500);
 updateData();
 updateTitle();
 loadSendHistory();

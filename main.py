@@ -4,6 +4,7 @@ from pythonosc import dispatcher
 from pythonosc import osc_server
 import threading
 import requests
+import time
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -26,6 +27,12 @@ sent_values_history = {}
 sent_values_counter = 0
 MAX_SENT_HISTORY = 100
 
+# Connectivity heartbeat timestamps.
+last_sensor_update_ts = 0.0
+last_esp32_http_ok_ts = 0.0
+SENSOR_STALE_SECONDS = 5
+ESP32_HTTP_STALE_SECONDS = 15
+
 # Lock to protect sensor_data across threads
 data_lock = threading.Lock()
 
@@ -45,7 +52,7 @@ def unreal_value_handler(unused_addr, *args):
 # OSC callback for sensor data
 def osc_sensor_handler(unused_addr, *args):
     """Handle OSC messages from ESP32"""
-    global sensor_data
+    global sensor_data, last_sensor_update_ts
     
     with data_lock:
         if len(args) >= 4:
@@ -54,12 +61,14 @@ def osc_sensor_handler(unused_addr, *args):
             sensor_data["red"] = int(red)
             sensor_data["bpm"] = round(float(bpm), 1)
             sensor_data["finger"] = int(finger)
+            last_sensor_update_ts = time.time()
             print(f"Received OSC: IR={ir}, Red={red}, BPM={bpm}, Finger={finger}")
         elif len(args) >= 2:
             ir, red = args[0], args[1]
             sensor_data["ir"] = int(ir)
             sensor_data["red"] = int(red)
             sensor_data["finger"] = 1 if ir > 50000 else 0
+            last_sensor_update_ts = time.time()
             print(f"Received OSC: IR={ir}, Red={red}")
 
 
@@ -71,16 +80,18 @@ def index():
 # HTTP endpoint for sensor data (for backward compatibility)
 @app.route("/sensor", methods=["POST"])
 def sensor():
-    global sensor_data
+    global sensor_data, last_sensor_update_ts
 
     try:
         data = request.json
         
         if data:
-            sensor_data["ir"] = data.get("ir", sensor_data["ir"])
-            sensor_data["red"] = data.get("red", sensor_data["red"])
-            sensor_data["bpm"] = data.get("bpm", sensor_data["bpm"])
-            sensor_data["finger"] = data.get("finger", sensor_data["finger"])
+            with data_lock:
+                sensor_data["ir"] = data.get("ir", sensor_data["ir"])
+                sensor_data["red"] = data.get("red", sensor_data["red"])
+                sensor_data["bpm"] = data.get("bpm", sensor_data["bpm"])
+                sensor_data["finger"] = data.get("finger", sensor_data["finger"])
+                last_sensor_update_ts = time.time()
 
         return jsonify({"status": "ok", "data": sensor_data}), 200
     except Exception as e:
@@ -90,6 +101,8 @@ def sensor():
 # frontend fetches latest values
 @app.route("/data")
 def data():
+    now = time.time()
+
     with data_lock:
         snapshot = dict(sensor_data)
         # Newest first for UI rendering in the left history panel.
@@ -98,9 +111,20 @@ def data():
             {"id": send_id, **values}
             for send_id, values in reversed(history_items)
         ]
+        sensor_age_sec = round(now - last_sensor_update_ts, 2) if last_sensor_update_ts else None
+        http_age_sec = round(now - last_esp32_http_ok_ts, 2) if last_esp32_http_ok_ts else None
+
+    esp32_connected = False
+    if sensor_age_sec is not None and sensor_age_sec <= SENSOR_STALE_SECONDS:
+        esp32_connected = True
+    elif http_age_sec is not None and http_age_sec <= ESP32_HTTP_STALE_SECONDS:
+        esp32_connected = True
 
     snapshot["unreal_value"] = unreal_value
     snapshot["sent_history"] = sent_history_snapshot
+    snapshot["esp32_connected"] = esp32_connected
+    snapshot["sensor_age_sec"] = sensor_age_sec
+    snapshot["esp32_http_age_sec"] = http_age_sec
     return jsonify(snapshot)
 
 
@@ -108,7 +132,7 @@ def data():
 @app.route("/trigger", methods=["POST"])
 def trigger():
     try:
-        global sent_values_counter
+        global sent_values_counter, last_esp32_http_ok_ts
 
         data = request.json or {}
         msg1 = data.get("msg1", 0)
@@ -118,6 +142,8 @@ def trigger():
 
         url = f"http://{ESP32_IP}/message"
         response = requests.get(url, params={"msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}, timeout=5)
+        response.raise_for_status()
+        last_esp32_http_ok_ts = time.time()
 
         with data_lock:
             sent_values_counter += 1
@@ -162,8 +188,6 @@ def start_unreal_osc_server():
 
 
 if __name__ == "__main__":
-    import time
-
     # Start OSC server for ESP32 sensor data + relayed Unreal (port 9001)
     osc_thread = threading.Thread(target=start_osc_server, daemon=True)
     osc_thread.start()
@@ -175,4 +199,4 @@ if __name__ == "__main__":
     time.sleep(0.5)
     
     print("[INFO] Starting Flask server on http://0.0.0.0:4000")
-    app.run(host="0.0.0.0", port=4000, debug=True)
+    app.run(host="0.0.0.0", port=4000, debug=False, use_reloader=False)
