@@ -5,6 +5,7 @@ from pythonosc import osc_server
 import threading
 import requests
 import time
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -33,6 +34,9 @@ last_esp32_http_ok_ts = 0.0
 SENSOR_STALE_SECONDS = 5
 ESP32_HTTP_STALE_SECONDS = 15
 
+# Active capture session state. Only one capture can run at a time.
+active_capture = None
+
 # Lock to protect sensor_data across threads
 data_lock = threading.Lock()
 
@@ -52,7 +56,7 @@ def unreal_value_handler(unused_addr, *args):
 # OSC callback for sensor data
 def osc_sensor_handler(unused_addr, *args):
     """Handle OSC messages from ESP32"""
-    global sensor_data, last_sensor_update_ts
+    global sensor_data, last_sensor_update_ts, active_capture
     
     with data_lock:
         if len(args) >= 4:
@@ -70,6 +74,43 @@ def osc_sensor_handler(unused_addr, *args):
             sensor_data["finger"] = 1 if ir > 50000 else 0
             last_sensor_update_ts = time.time()
             print(f"Received OSC: IR={ir}, Red={red}")
+            bpm = sensor_data["bpm"]
+        else:
+            return
+
+        # If capture is active, append this sample during the capture window.
+        if active_capture:
+            now = time.time()
+            if now > active_capture["end_ts"]:
+                # Capture finished.
+                entry = sent_values_history.get(active_capture["entry_id"])
+                if entry:
+                    entry["capture_complete"] = True
+                    entry["capture_completed_at"] = datetime.utcnow().isoformat() + "Z"
+                active_capture = None
+            elif now >= active_capture["start_ts"]:
+                entry = sent_values_history.get(active_capture["entry_id"])
+                if entry:
+                    entry["ir_values"].append(int(sensor_data["ir"]))
+                    entry["red_values"].append(int(sensor_data["red"]))
+                    entry["bpm_values"].append(float(sensor_data["bpm"]))
+
+
+def _finalize_capture_if_expired(now_ts):
+    """Finalize active capture by time even if no new OSC packet arrives."""
+    global active_capture
+
+    if not active_capture:
+        return
+
+    if now_ts <= active_capture["end_ts"]:
+        return
+
+    entry = sent_values_history.get(active_capture["entry_id"])
+    if entry:
+        entry["capture_complete"] = True
+        entry["capture_completed_at"] = datetime.utcnow().isoformat() + "Z"
+    active_capture = None
 
 
 @app.route("/")
@@ -104,15 +145,32 @@ def data():
     now = time.time()
 
     with data_lock:
+        _finalize_capture_if_expired(now)
+
         snapshot = dict(sensor_data)
         # Newest first for UI rendering in the left history panel.
         history_items = list(sent_values_history.items())
         sent_history_snapshot = [
-            {"id": send_id, **values}
+            {
+                "id": send_id,
+                "msg1": values.get("msg1"),
+                "msg2": values.get("msg2"),
+                "msg3": values.get("msg3"),
+                "msg4": values.get("msg4"),
+                "sent_at": values.get("sent_at"),
+                "capture_complete": values.get("capture_complete", False),
+                "samples": len(values.get("ir_values", []))
+            }
             for send_id, values in reversed(history_items)
         ]
         sensor_age_sec = round(now - last_sensor_update_ts, 2) if last_sensor_update_ts else None
         http_age_sec = round(now - last_esp32_http_ok_ts, 2) if last_esp32_http_ok_ts else None
+        capture_in_progress = active_capture is not None
+        capture_remaining_sec = 0
+        capture_entry_id = None
+        if active_capture:
+            capture_remaining_sec = max(0, int(active_capture["end_ts"] - now))
+            capture_entry_id = active_capture["entry_id"]
 
     esp32_connected = False
     if sensor_age_sec is not None and sensor_age_sec <= SENSOR_STALE_SECONDS:
@@ -125,6 +183,9 @@ def data():
     snapshot["esp32_connected"] = esp32_connected
     snapshot["sensor_age_sec"] = sensor_age_sec
     snapshot["esp32_http_age_sec"] = http_age_sec
+    snapshot["capture_in_progress"] = capture_in_progress
+    snapshot["capture_remaining_sec"] = capture_remaining_sec
+    snapshot["capture_entry_id"] = capture_entry_id
     return jsonify(snapshot)
 
 
@@ -132,13 +193,19 @@ def data():
 @app.route("/trigger", methods=["POST"])
 def trigger():
     try:
-        global sent_values_counter, last_esp32_http_ok_ts
+        global sent_values_counter, last_esp32_http_ok_ts, active_capture
 
         data = request.json or {}
         msg1 = data.get("msg1", 0)
         msg2 = data.get("msg2", 0)
         msg3 = data.get("msg3", 0)
         msg4 = data.get("msg4", 0)
+
+        with data_lock:
+            _finalize_capture_if_expired(time.time())
+            if active_capture:
+                remaining = max(0, int(active_capture["end_ts"] - time.time()))
+                return jsonify({"status": "busy", "remaining_sec": remaining}), 409
 
         url = f"http://{ESP32_IP}/message"
         response = requests.get(url, params={"msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}, timeout=5)
@@ -147,23 +214,79 @@ def trigger():
 
         with data_lock:
             sent_values_counter += 1
-            sent_values_history[str(sent_values_counter)] = {
+            new_id = str(sent_values_counter)
+            capture_duration_sec = int(msg3) * 20
+            capture_start_ts = time.time() + 2
+            capture_end_ts = capture_start_ts + capture_duration_sec
+
+            sent_values_history[new_id] = {
                 "msg1": int(msg1),
                 "msg2": int(msg2),
                 "msg3": int(msg3),
-                "msg4": int(msg4)
+                "msg4": int(msg4),
+                "sent_at": datetime.utcnow().isoformat() + "Z",
+                "capture_delay_sec": 2,
+                "capture_duration_sec": capture_duration_sec,
+                "capture_complete": False,
+                "capture_started_at": datetime.utcfromtimestamp(capture_start_ts).isoformat() + "Z",
+                "capture_end_at": datetime.utcfromtimestamp(capture_end_ts).isoformat() + "Z",
+                "capture_completed_at": None,
+                "ir_values": [],
+                "red_values": [],
+                "bpm_values": []
+            }
+
+            active_capture = {
+                "entry_id": new_id,
+                "start_ts": capture_start_ts,
+                "end_ts": capture_end_ts
             }
 
             # Keep memory bounded by removing oldest records.
             while len(sent_values_history) > MAX_SENT_HISTORY:
                 oldest_id = next(iter(sent_values_history))
                 del sent_values_history[oldest_id]
+                if active_capture and active_capture["entry_id"] == oldest_id:
+                    active_capture = None
 
         print(f"[TRIGGER] msg1(lang)={msg1} msg2={msg2} msg3={msg3} msg4={msg4}")
-        return jsonify({"status": "sent", "msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}), 200
+        return jsonify({"status": "sent", "id": new_id, "msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}), 200
     except Exception as e:
         print(f"[TRIGGER] Error: {str(e)}")
         return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+@app.route("/analytic")
+def analytic_page():
+    return render_template("analytic.html")
+
+
+@app.route("/analytic-data/<send_id>")
+def analytic_data(send_id):
+    with data_lock:
+        entry = sent_values_history.get(str(send_id))
+        if not entry:
+            return jsonify({"status": "not_found"}), 404
+
+        payload = {
+            "id": str(send_id),
+            "msg1": entry.get("msg1"),
+            "msg2": entry.get("msg2"),
+            "msg3": entry.get("msg3"),
+            "msg4": entry.get("msg4"),
+            "sent_at": entry.get("sent_at"),
+            "capture_delay_sec": entry.get("capture_delay_sec"),
+            "capture_duration_sec": entry.get("capture_duration_sec"),
+            "capture_complete": entry.get("capture_complete", False),
+            "capture_started_at": entry.get("capture_started_at"),
+            "capture_end_at": entry.get("capture_end_at"),
+            "capture_completed_at": entry.get("capture_completed_at"),
+            "ir_values": list(entry.get("ir_values", [])),
+            "red_values": list(entry.get("red_values", [])),
+            "bpm_values": list(entry.get("bpm_values", []))
+        }
+
+    return jsonify(payload)
 
 
 def start_osc_server():

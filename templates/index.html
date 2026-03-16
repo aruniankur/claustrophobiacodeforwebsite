@@ -585,6 +585,7 @@
 let isServerConnected = false;
 const sendHistory = [];
 let historySignature = "";
+let isSendingNow = false;
 
 const languageMap = {
     1: "English",
@@ -594,6 +595,13 @@ const languageMap = {
 
 function updateVal(inputId, displayId) {
     document.getElementById(displayId).textContent = document.getElementById(inputId).value;
+}
+
+function formatStamp(isoText) {
+    if (!isoText) return "--";
+    const parsed = new Date(isoText);
+    if (Number.isNaN(parsed.getTime())) return isoText;
+    return parsed.toLocaleString();
 }
 
 // ── Chart config ──────────────────────────────────────────────
@@ -737,6 +745,8 @@ async function updateData() {
             }
         }
 
+        updateTriggerButtonState(data.capture_in_progress, data.capture_remaining_sec);
+
         addDataPoint(data.ir, data.red, data.bpm);
 
         isServerConnected = true;
@@ -770,6 +780,24 @@ function setStatus(espConnected, sensorAgeSec = null, serverOffline = false) {
     }
 }
 
+function updateTriggerButtonState(captureInProgress, remainingSec) {
+    const btn = document.getElementById("triggerBtn");
+    if (isSendingNow) {
+        btn.disabled = true;
+        btn.textContent = "Sending...";
+        return;
+    }
+
+    if (captureInProgress) {
+        btn.disabled = true;
+        btn.textContent = `Capture Running (${remainingSec || 0}s)`;
+        return;
+    }
+
+    btn.disabled = false;
+    btn.textContent = "Send All to ESP32";
+}
+
 function renderLastSentValues(v1, v2, v3, v4) {
     // Backend now stores history; we keep this function as a no-op for compatibility.
 }
@@ -782,7 +810,10 @@ function syncSendHistory(serverHistory) {
             language: languageMap[item.msg1] || `${item.msg1}`,
             size: `${item.msg2}`,
             time: `${item.msg3}`,
-            intensity: `${item.msg4}`
+            intensity: `${item.msg4}`,
+            sentAt: item.sent_at,
+            captureComplete: Boolean(item.capture_complete),
+            samples: item.samples || 0
         });
     });
 }
@@ -801,13 +832,18 @@ function renderSentHistory() {
         <div class="sent-entry">
             <div class="sent-entry-head">
                 <span class="sent-entry-title">Send #${entry.id}</span>
-                <span class="sent-entry-time">Stored in backend</span>
+                <span class="sent-entry-time">${formatStamp(entry.sentAt)}</span>
             </div>
             <div class="sent-entry-grid">
                 <div class="sent-metric"><span>Language</span><span>${entry.language}</span></div>
                 <div class="sent-metric"><span>Size</span><span>${entry.size}</span></div>
                 <div class="sent-metric"><span>Time</span><span>${entry.time}</span></div>
                 <div class="sent-metric"><span>Intensity</span><span>${entry.intensity}</span></div>
+                <div class="sent-metric"><span>Capture</span><span>${entry.captureComplete ? "Done" : "Running"}</span></div>
+                <div class="sent-metric"><span>Samples</span><span>${entry.samples}</span></div>
+            </div>
+            <div style="margin-top:8px; text-align:right;">
+                <a href="/analytic?id=${entry.id}" style="font-size:12px; font-weight:700; color:#5568d3; text-decoration:none;">View More</a>
             </div>
         </div>
     `).join("");
@@ -824,9 +860,8 @@ async function sendTrigger() {
     const v3 = document.getElementById("input3").value;
     const v4 = document.getElementById("input4").value;
 
-    const btn = document.getElementById("triggerBtn");
-    btn.disabled = true;
-    btn.textContent = "Sending...";
+    isSendingNow = true;
+    updateTriggerButtonState(false, 0);
 
     try {
         const res = await fetch("/trigger", {
@@ -834,6 +869,17 @@ async function sendTrigger() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ msg1: v1, msg2: parseInt(v2), msg3: parseInt(v3), msg4: parseInt(v4) })
         });
+
+        if (res.status === 409) {
+            const busyData = await res.json();
+            alert(`Capture in progress. Wait ${busyData.remaining_sec || 0}s`);
+            return;
+        }
+
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+
         const data = await res.json();
         console.log("Trigger response:", data);
         await updateData();
@@ -842,8 +888,8 @@ async function sendTrigger() {
         console.error("Trigger error:", err);
         alert("Failed to send!");
     } finally {
-        btn.disabled = false;
-        btn.textContent = "Send All to ESP32";
+        isSendingNow = false;
+        await updateData();
     }
 }
 

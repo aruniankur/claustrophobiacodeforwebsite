@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Capture Analytics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: #eef2f8;
+        min-height: 100vh;
+        padding: 16px;
+    }
+
+    .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        background: #f8faff;
+        border-radius: 14px;
+        border: 1px solid #dbe3f1;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+        padding: 18px;
+    }
+
+    .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        gap: 12px;
+    }
+
+    .title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #22324a;
+    }
+
+    .back-link {
+        text-decoration: none;
+        color: #4c62d3;
+        font-size: 13px;
+        font-weight: 700;
+        background: #e8edff;
+        padding: 7px 10px;
+        border-radius: 8px;
+    }
+
+    .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+
+    .meta-card {
+        border: 1px solid #dbe3f1;
+        border-radius: 10px;
+        background: #ffffff;
+        padding: 10px 12px;
+    }
+
+    .meta-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        color: #596a85;
+        border-bottom: 1px dashed #e6ebf5;
+        padding: 5px 0;
+    }
+
+    .meta-row span:last-child {
+        font-weight: 700;
+        color: #263958;
+    }
+
+    .chart-box {
+        background: #ffffff;
+        border: 1px solid #dbe3f1;
+        border-radius: 10px;
+        padding: 12px;
+    }
+
+    #chart {
+        width: 100% !important;
+        height: 360px !important;
+    }
+
+    .msg {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #607089;
+    }
+
+    @media (max-width: 700px) {
+        .meta-grid { grid-template-columns: 1fr; }
+        #chart { height: 280px !important; }
+    }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="title" id="title">Capture Analytics</div>
+        <a class="back-link" href="/">Back to Dashboard</a>
+    </div>
+
+    <div class="meta-grid">
+        <div class="meta-card" id="settingsCard"></div>
+        <div class="meta-card" id="captureCard"></div>
+    </div>
+
+    <div class="chart-box">
+        <canvas id="chart"></canvas>
+        <div class="msg" id="statusMsg">Loading...</div>
+    </div>
+</div>
+
+<script>
+const languageMap = {
+    1: "English",
+    2: "Hindi",
+    3: "Bengali"
+};
+
+function qs(name) {
+    return new URLSearchParams(window.location.search).get(name);
+}
+
+function fmt(isoText) {
+    if (!isoText) return "--";
+    const d = new Date(isoText);
+    if (Number.isNaN(d.getTime())) return isoText;
+    return d.toLocaleString();
+}
+
+function setHtml(id, html) {
+    document.getElementById(id).innerHTML = html;
+}
+
+function buildChart(irVals, redVals, bpmVals) {
+    const labels = Array.from({ length: irVals.length }, (_, i) => i + 1);
+    const ctx = document.getElementById("chart").getContext("2d");
+
+    new Chart(ctx, {
+        type: "line",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "IR",
+                    data: irVals,
+                    borderColor: "#4f67d8",
+                    backgroundColor: "#4f67d822",
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.25
+                },
+                {
+                    label: "RED",
+                    data: redVals,
+                    borderColor: "#d64b4b",
+                    backgroundColor: "#d64b4b22",
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.25
+                },
+                {
+                    label: "BPM",
+                    data: bpmVals,
+                    borderColor: "#22a266",
+                    backgroundColor: "#22a26622",
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.25
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: { labels: { color: "#41526e" } }
+            },
+            scales: {
+                x: {
+                    title: { display: true, text: "Sample Index", color: "#6b7b95" },
+                    ticks: { color: "#6b7b95" },
+                    grid: { color: "#edf1f8" }
+                },
+                y: {
+                    ticks: { color: "#6b7b95" },
+                    grid: { color: "#edf1f8" }
+                }
+            }
+        }
+    });
+}
+
+async function init() {
+    const id = qs("id");
+    if (!id) {
+        document.getElementById("statusMsg").textContent = "Missing id in URL (use /analytic?id=<send_id>).";
+        return;
+    }
+
+    document.getElementById("title").textContent = `Capture Analytics - Send #${id}`;
+
+    try {
+        const res = await fetch(`/analytic-data/${id}`);
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const irVals = Array.isArray(data.ir_values) ? data.ir_values : [];
+        const redVals = Array.isArray(data.red_values) ? data.red_values : [];
+        const bpmVals = Array.isArray(data.bpm_values) ? data.bpm_values : [];
+
+        setHtml("settingsCard", `
+            <div class="meta-row"><span>Language</span><span>${languageMap[data.msg1] || data.msg1}</span></div>
+            <div class="meta-row"><span>Size</span><span>${data.msg2}</span></div>
+            <div class="meta-row"><span>Time</span><span>${data.msg3}</span></div>
+            <div class="meta-row"><span>Intensity</span><span>${data.msg4}</span></div>
+            <div class="meta-row"><span>Sent At</span><span>${fmt(data.sent_at)}</span></div>
+        `);
+
+        setHtml("captureCard", `
+            <div class="meta-row"><span>Capture Delay</span><span>${data.capture_delay_sec}s</span></div>
+            <div class="meta-row"><span>Capture Duration</span><span>${data.capture_duration_sec}s</span></div>
+            <div class="meta-row"><span>Started</span><span>${fmt(data.capture_started_at)}</span></div>
+            <div class="meta-row"><span>Ended</span><span>${fmt(data.capture_end_at)}</span></div>
+            <div class="meta-row"><span>Status</span><span>${data.capture_complete ? "Complete" : "Running"}</span></div>
+            <div class="meta-row"><span>Total Samples</span><span>${irVals.length}</span></div>
+        `);
+
+        buildChart(irVals, redVals, bpmVals);
+        document.getElementById("statusMsg").textContent = irVals.length
+            ? "Loaded captured IR/RED/BPM samples."
+            : "No samples captured yet for this send.";
+    } catch (err) {
+        document.getElementById("statusMsg").textContent = `Failed to load analytics: ${err.message}`;
+    }
+}
+
+init();
+</script>
+</body>
+</html>
