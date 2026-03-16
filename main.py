@@ -21,6 +21,11 @@ sensor_data = {
     "finger": 0
 }
 
+# Stores previously sent trigger values in insertion order.
+sent_values_history = {}
+sent_values_counter = 0
+MAX_SENT_HISTORY = 100
+
 # Lock to protect sensor_data across threads
 data_lock = threading.Lock()
 
@@ -87,8 +92,15 @@ def sensor():
 def data():
     with data_lock:
         snapshot = dict(sensor_data)
+        # Newest first for UI rendering in the left history panel.
+        history_items = list(sent_values_history.items())
+        sent_history_snapshot = [
+            {"id": send_id, **values}
+            for send_id, values in reversed(history_items)
+        ]
 
     snapshot["unreal_value"] = unreal_value
+    snapshot["sent_history"] = sent_history_snapshot
     return jsonify(snapshot)
 
 
@@ -96,6 +108,8 @@ def data():
 @app.route("/trigger", methods=["POST"])
 def trigger():
     try:
+        global sent_values_counter
+
         data = request.json or {}
         msg1 = data.get("msg1", 0)
         msg2 = data.get("msg2", 0)
@@ -104,6 +118,20 @@ def trigger():
 
         url = f"http://{ESP32_IP}/message"
         response = requests.get(url, params={"msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}, timeout=5)
+
+        with data_lock:
+            sent_values_counter += 1
+            sent_values_history[str(sent_values_counter)] = {
+                "msg1": int(msg1),
+                "msg2": int(msg2),
+                "msg3": int(msg3),
+                "msg4": int(msg4)
+            }
+
+            # Keep memory bounded by removing oldest records.
+            while len(sent_values_history) > MAX_SENT_HISTORY:
+                oldest_id = next(iter(sent_values_history))
+                del sent_values_history[oldest_id]
 
         print(f"[TRIGGER] msg1(lang)={msg1} msg2={msg2} msg3={msg3} msg4={msg4}")
         return jsonify({"status": "sent", "msg1": msg1, "msg2": msg2, "msg3": msg3, "msg4": msg4}), 200
@@ -147,4 +175,4 @@ if __name__ == "__main__":
     time.sleep(0.5)
     
     print("[INFO] Starting Flask server on http://0.0.0.0:4000")
-    app.run(host="0.0.0.0", port=4000, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=4000, debug=True)

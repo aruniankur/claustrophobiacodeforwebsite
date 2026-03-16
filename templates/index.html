@@ -2,142 +2,202 @@
 <html>
 
 <head>
-<title>ESP32 Sensor Monitor</title>
+<title>ESP32 ClaustroPhobia Sensor Monitor</title>
 <style>
     * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
     }
-    
+
     body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #e8ecf4;
         min-height: 100vh;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 20px;
+        padding: 16px;
     }
-    
+
     .container {
-        background: white;
-        border-radius: 15px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        padding: 40px;
-        max-width: 900px;
-        width: 100%;
+        background: #f0f3f8;
+        border-radius: 14px;
+        padding: 20px 24px 24px;
+        max-width: 1380px;
+        margin: 0 auto;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.10);
     }
-    
-    h1 {
-        color: #333;
-        margin-bottom: 30px;
-        text-align: center;
-        font-size: 28px;
+
+    /* ── Page header ── */
+    .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
     }
-    
+
+    .page-header h1 {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1e2a3a;
+        letter-spacing: 0.2px;
+    }
+
+    /* ── Status ── */
+    .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 13px;
+        border-radius: 20px;
+        background: #e8edf5;
+        color: #999;
+    }
+
+    .status.connected {
+        background: #d4edda;
+        color: #28a745;
+    }
+
+    .status.disconnected {
+        background: #f8d7da;
+        color: #dc3545;
+    }
+
+    /* ── Sensor strip ── */
     .sensor-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-        margin-bottom: 30px;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        margin-bottom: 14px;
     }
-    
+
     .sensor-card {
-        background: #f8f9fa;
-        border: 2px solid #e9ecef;
+        background: white;
+        border: 1.5px solid #dde3ed;
         border-radius: 10px;
-        padding: 20px;
+        padding: 14px 10px 12px;
         text-align: center;
-        transition: all 0.3s ease;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        transition: box-shadow 0.2s, border-color 0.2s;
     }
-    
+
     .sensor-card:hover {
         border-color: #667eea;
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+        box-shadow: 0 4px 14px rgba(102,126,234,0.18);
     }
 
     .sensor-card.unreal {
-        background: #f0f4ff;
-        border-color: #764ba2;
-        grid-column: 1 / -1;
+        background: #f4f0ff;
+        border-color: #9b7de8;
+        grid-column: auto;
     }
 
     .sensor-card.unreal .sensor-label {
-        color: #764ba2;
+        color: #7c4dcc;
     }
 
     .sensor-card.unreal .sensor-value {
-        color: #764ba2;
-        font-size: 40px;
+        color: #7c4dcc;
+        font-size: 22px;
     }
-    
+
     .sensor-label {
-        color: #666;
-        font-size: 12px;
-        font-weight: 600;
+        color: #98a3b5;
+        font-size: 10px;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 8px;
+        letter-spacing: 0.8px;
+        margin-bottom: 6px;
     }
-    
+
     .sensor-value {
         color: #667eea;
-        font-size: 32px;
-        font-weight: bold;
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1;
     }
-    
-    .status {
-        text-align: center;
-        margin-bottom: 20px;
-        font-size: 12px;
-        color: #999;
+
+    /* ── Two-column layout ── */
+    .main-layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
     }
-    
-    .status.connected {
-        color: #28a745;
-    }
-    
-    .status.disconnected {
-        color: #dc3545;
-    }
-    
-    .button-group {
+
+    .left-column,
+    .right-column {
         display: flex;
-        gap: 10px;
+        flex-direction: column;
+        gap: 12px;
     }
-    
+
+    /* ── Panel boxes ── */
+    .panel-box {
+        background: white;
+        border: 1.5px solid #dde3ed;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+
+    .panel-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: #667eea;
+        margin-bottom: 14px;
+        padding-bottom: 8px;
+        border-bottom: 1.5px solid #edf0f7;
+    }
+
+    /* ── Input controls ── */
     .input-section {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        margin-bottom: 15px;
+        gap: 12px;
+        margin-bottom: 14px;
     }
 
     .input-row {
         display: flex;
-        align-items: center;
-        gap: 10px;
+        flex-direction: column;
+        gap: 5px;
     }
 
     .input-row label {
-        color: #555;
-        font-size: 13px;
-        font-weight: 600;
-        width: 80px;
-        flex-shrink: 0;
+        color: #6b7589;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
-    .input-row input[type="number"],
     .input-row select {
-        flex: 1;
-        padding: 10px 14px;
-        border: 2px solid #e9ecef;
-        border-radius: 8px;
-        font-size: 14px;
+        width: 100%;
+        padding: 8px 10px;
+        border: 1.5px solid #dde3ed;
+        border-radius: 7px;
+        font-size: 13px;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        transition: border-color 0.3s ease;
-        background: white;
+        background: #f8f9fc;
+        color: #2d3748;
+        cursor: pointer;
+        transition: border-color 0.2s;
+    }
+
+    .input-row select:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102,126,234,0.12);
+    }
+
+    .slider-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 
     .input-row input[type="range"] {
@@ -148,99 +208,174 @@
 
     .value-display {
         min-width: 30px;
-        text-align: right;
-        font-size: 14px;
-        font-weight: 600;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 700;
         color: #667eea;
+        background: #eef1fb;
+        padding: 2px 6px;
+        border-radius: 5px;
+        flex-shrink: 0;
     }
 
-    .input-row input:focus,
-    .input-row select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-
-    .input-row input::placeholder {
-        color: #bbb;
+    /* ── Send button ── */
+    .button-group {
+        display: flex;
+        gap: 10px;
     }
 
     button {
         flex: 1;
-        padding: 12px 20px;
+        padding: 11px 16px;
         border: none;
         border-radius: 8px;
-        font-size: 14px;
-        font-weight: 600;
+        font-size: 13px;
+        font-weight: 700;
         cursor: pointer;
-        transition: all 0.3s ease;
+        transition: all 0.2s;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-    
+
     #triggerBtn {
-        background: #667eea;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
+        box-shadow: 0 3px 10px rgba(102,126,234,0.3);
     }
-    
+
     #triggerBtn:hover {
-        background: #5568d3;
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        transform: translateY(-1px);
+        box-shadow: 0 5px 16px rgba(102,126,234,0.45);
     }
-    
+
     #triggerBtn:active {
         transform: translateY(0);
     }
-    
-    #triggerBtn.loading {
+
+    #triggerBtn:disabled {
         opacity: 0.6;
         cursor: not-allowed;
+        transform: none;
     }
 
-    .chart-section {
-        margin-bottom: 30px;
+    /* ── Send history ── */
+    .last-sent-values {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 300px;
+        overflow-y: auto;
+        padding-right: 2px;
     }
+
+    .last-sent-values::-webkit-scrollbar { width: 4px; }
+    .last-sent-values::-webkit-scrollbar-track { background: #f0f2f7; border-radius: 4px; }
+    .last-sent-values::-webkit-scrollbar-thumb { background: #c8cfde; border-radius: 4px; }
+
+    .sent-entry {
+        border: 1.5px solid #e8edf5;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #f8f9fc;
+    }
+
+    .sent-entry-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 7px;
+    }
+
+    .sent-entry-title {
+        font-size: 11px;
+        color: #667eea;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+
+    .sent-entry-time {
+        font-size: 11px;
+        color: #8a96ab;
+        font-weight: 600;
+    }
+
+    .sent-entry-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 4px 8px;
+    }
+
+    .sent-metric {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #8a96ab;
+        border-bottom: 1px dashed #dde3ed;
+        padding-bottom: 3px;
+    }
+
+    .sent-metric span:last-child {
+        color: #2d3748;
+        font-weight: 700;
+    }
+
+    .last-sent-placeholder {
+        color: #b0bac9;
+        font-size: 13px;
+        text-align: center;
+        padding: 16px 0;
+    }
+
+    /* ── Chart area ── */
+    .chart-section { margin-bottom: 0; }
 
     .chart-header {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        margin-bottom: 12px;
-        gap: 15px;
+        gap: 12px;
+        margin-bottom: 10px;
+        background: white;
+        border: 1.5px solid #dde3ed;
+        border-radius: 10px;
+        padding: 10px 14px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     }
 
     .chart-header h2 {
-        color: #555;
-        font-size: 15px;
-        font-weight: 600;
+        color: #3d4a5c;
+        font-size: 13px;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.8px;
         flex: 1;
+        margin: 0;
     }
 
     .window-selector {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 7px;
     }
 
     .window-selector label {
-        font-size: 12px;
-        color: #666;
-        font-weight: 600;
+        font-size: 11px;
+        color: #8a96ab;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
     }
 
     .window-selector select {
-        padding: 5px 10px;
-        border: 2px solid #e9ecef;
+        padding: 5px 9px;
+        border: 1.5px solid #dde3ed;
         border-radius: 6px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 600;
-        color: #555;
-        background: white;
+        color: #3d4a5c;
+        background: #f8f9fc;
         cursor: pointer;
-        transition: border-color 0.3s;
+        transition: border-color 0.2s;
     }
 
     .window-selector select:focus {
@@ -249,13 +384,14 @@
     }
 
     .live-badge {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
-        padding: 3px 10px;
+        padding: 4px 11px;
         border-radius: 20px;
         background: #d4edda;
         color: #28a745;
         transition: all 0.3s;
+        white-space: nowrap;
     }
 
     .live-badge.paused {
@@ -264,55 +400,67 @@
     }
 
     .chart-wrapper {
-        background: #f8f9fa;
-        border: 2px solid #e9ecef;
+        background: white;
+        border: 1.5px solid #dde3ed;
         border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 14px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     }
 
     .chart-wrapper canvas {
         width: 100% !important;
-        height: 140px !important;
+        height: 130px !important;
     }
 
     .scroll-bar-section {
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-top: 4px;
-        margin-bottom: 6px;
+        margin-top: 2px;
+        margin-bottom: 4px;
     }
 
     .scroll-label {
         font-size: 11px;
-        color: #999;
+        color: #b0bac9;
         white-space: nowrap;
     }
 
     #scrollBar {
         flex: 1;
-        height: 6px;
+        height: 5px;
         cursor: pointer;
         accent-color: #667eea;
     }
 
     #backToLiveBtn {
         display: none;
-        padding: 6px 14px;
+        padding: 7px 14px;
         background: #667eea;
         color: white;
         border: none;
-        border-radius: 6px;
+        border-radius: 7px;
         font-size: 12px;
-        font-weight: 600;
+        font-weight: 700;
         cursor: pointer;
         margin-top: 8px;
         width: 100%;
+        letter-spacing: 0.5px;
+        flex: none;
     }
 
-    #backToLiveBtn:hover {
-        background: #5568d3;
+    #backToLiveBtn:hover { background: #5568d3; }
+
+    /* ── Responsive ── */
+    @media (max-width: 1150px) {
+        .sensor-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 900px) {
+        .container { padding: 14px; }
+        .main-layout { grid-template-columns: 1fr; }
+        .sensor-grid { grid-template-columns: repeat(2, 1fr); }
     }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
@@ -321,93 +469,114 @@
 <body>
 
 <div class="container">
-    <h1>Sensor Readings</h1>
-    
-    <div class="status" id="status">● Connecting...</div>
-    
-    <div class="sensor-grid">
-        <div class="sensor-card">
-            <div class="sensor-label">IR</div>
-            <div class="sensor-value" id="ir">--</div>
-        </div>
-        <div class="sensor-card">
-            <div class="sensor-label">RED</div>
-            <div class="sensor-value" id="red">--</div>
-        </div>
-        <div class="sensor-card">
-            <div class="sensor-label">BPM</div>
-            <div class="sensor-value" id="bpm">--</div>
-        </div>
-        <div class="sensor-card">
-            <div class="sensor-label">Finger Detected</div>
-            <div class="sensor-value" id="finger">--</div>
-        </div>
-        <div class="sensor-card unreal">
-            <div class="sensor-label">&#11041; Unreal Value</div>
-            <div class="sensor-value" id="unreal_value">--</div>
-        </div>
-    </div>
-    
-    <div class="input-section">
-        <div class="input-row">
-            <label>Language</label>
-            <select id="input1">
-                <option value="1">English</option>
-                <option value="2">Hindi</option>
-                <option value="3">Bengali</option>
-            </select>
-            <div class="value-display" style="visibility:hidden">--</div>
-        </div>
-        <div class="input-row">
-            <label>Size</label>
-            <input type="range" id="input2" min="60" max="120" value="80" oninput="updateVal('input2','val2')" />
-            <div class="value-display" id="val2">80</div>
-        </div>
-        <div class="input-row">
-            <label>Time</label>
-            <input type="range" id="input3" min="5" max="20" value="10" oninput="updateVal('input3','val3')" />
-            <div class="value-display" id="val3">10</div>
-        </div>
-        <div class="input-row">
-            <label>Intensity</label>
-            <input type="range" id="input4" min="40" max="80" value="60" oninput="updateVal('input4','val4')" />
-            <div class="value-display" id="val4">60</div>
-        </div>
-    </div>
-    <div class="button-group">
-        <button id="triggerBtn" onclick="sendTrigger()">Send All to ESP32</button>
+    <div class="page-header">
+        <h1>ESP32 Sensor Monitor</h1>
+        <div class="status" id="status">● Connecting...</div>
     </div>
 
-    <div class="chart-section">
-        <div class="chart-header">
-            <h2 id="chartTitle">Live Charts</h2>
-            <div class="window-selector">
-                <label>Window:</label>
-                <select id="windowSize" onchange="changeWindow()">
-                    <option value="30">30 sec</option>
-                    <option value="60">1 min</option>
-                    <option value="120" selected>2 min</option>
-                    <option value="300">5 min</option>
-                    <option value="600">10 min</option>
-                </select>
+    <div class="main-layout">
+        <div class="left-column">
+            <div class="panel-box">
+                <div class="panel-title">Control Panel</div>
+                <div class="input-section">
+                    <div class="input-row">
+                        <label>Language</label>
+                        <select id="input1">
+                            <option value="1">English</option>
+                            <option value="2">Hindi</option>
+                            <option value="3">Bengali</option>
+                        </select>
+                    </div>
+                    <div class="input-row">
+                        <label>Size</label>
+                        <div class="slider-row">
+                            <input type="range" id="input2" min="60" max="120" value="80" oninput="updateVal('input2','val2')" />
+                            <div class="value-display" id="val2">80</div>
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <label>Time</label>
+                        <div class="slider-row">
+                            <input type="range" id="input3" min="5" max="20" value="10" oninput="updateVal('input3','val3')" />
+                            <div class="value-display" id="val3">10</div>
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <label>Intensity</label>
+                        <div class="slider-row">
+                            <input type="range" id="input4" min="40" max="80" value="60" oninput="updateVal('input4','val4')" />
+                            <div class="value-display" id="val4">60</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button id="triggerBtn" onclick="sendTrigger()">Send All to ESP32</button>
+                </div>
             </div>
-            <span id="liveIndicator" class="live-badge">● LIVE</span>
+
+            <div class="panel-box">
+                <div class="panel-title">Previous Sent Value</div>
+                <div id="lastSentValues" class="last-sent-placeholder">No values sent yet.</div>
+            </div>
         </div>
-        <div class="chart-wrapper">
-            <canvas id="chartIR"></canvas>
+
+        <div class="right-column">
+            <div class="sensor-grid">
+                <div class="sensor-card">
+                    <div class="sensor-label">IR</div>
+                    <div class="sensor-value" id="ir">--</div>
+                </div>
+                <div class="sensor-card">
+                    <div class="sensor-label">RED</div>
+                    <div class="sensor-value" id="red">--</div>
+                </div>
+                <div class="sensor-card">
+                    <div class="sensor-label">BPM</div>
+                    <div class="sensor-value" id="bpm">--</div>
+                </div>
+                <div class="sensor-card">
+                    <div class="sensor-label">Finger Detected</div>
+                    <div class="sensor-value" id="finger">--</div>
+                </div>
+                <div class="sensor-card unreal">
+                    <div class="sensor-label">&#11041; Unreal Value</div>
+                    <div class="sensor-value" id="unreal_value">--</div>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-header">
+                    <h2 id="chartTitle">Live Charts</h2>
+                    <div class="window-selector">
+                        <label>Window:</label>
+                        <select id="windowSize" onchange="changeWindow()">
+                            <option value="15">15 sec</option>
+                            <option value="30">30 sec</option>
+                            <option value="60">1 min</option>
+                            <option value="120" selected>2 min</option>
+                            <option value="300">5 min</option>
+                            <option value="600">10 min</option>
+                        </select>
+                    </div>
+                    <span id="liveIndicator" class="live-badge">● LIVE</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="chartIR"></canvas>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="chartRED"></canvas>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="chartBPM"></canvas>
+                </div>
+                <div class="scroll-bar-section">
+                    <span class="scroll-label">◀ Older</span>
+                    <input type="range" id="scrollBar" min="0" max="0" value="0" />
+                    <span class="scroll-label">Newer ▶</span>
+                </div>
+                <button id="backToLiveBtn" onclick="backToLive()">↩ Back to Live</button>
+            </div>
         </div>
-        <div class="chart-wrapper">
-            <canvas id="chartRED"></canvas>
-        </div>
-        <div class="chart-wrapper">
-            <canvas id="chartBPM"></canvas>
-        </div>
-        <div class="scroll-bar-section">
-            <span class="scroll-label">◀ Older</span>
-            <input type="range" id="scrollBar" min="0" max="0" value="0" />
-            <span class="scroll-label">Newer ▶</span>
-        </div>
-        <button id="backToLiveBtn" onclick="backToLive()">↩ Back to Live</button>
     </div>
 </div>
 
@@ -415,6 +584,14 @@
 
 let lastUpdate = Date.now();
 let isConnected = false;
+const sendHistory = [];
+let historySignature = "";
+
+const languageMap = {
+    1: "English",
+    2: "Hindi",
+    3: "Bengali"
+};
 
 function updateVal(inputId, displayId) {
     document.getElementById(displayId).textContent = document.getElementById(inputId).value;
@@ -552,6 +729,15 @@ async function updateData() {
         document.getElementById("finger").innerText = data.finger ? "Yes" : "No";
         document.getElementById("unreal_value").innerText = (data.unreal_value !== undefined) ? data.unreal_value : "--";
 
+        if (Array.isArray(data.sent_history)) {
+            const newSignature = JSON.stringify(data.sent_history);
+            if (newSignature !== historySignature) {
+                historySignature = newSignature;
+                syncSendHistory(data.sent_history);
+                renderSentHistory();
+            }
+        }
+
         addDataPoint(data.ir, data.red, data.bpm);
 
         if (!isConnected) {
@@ -578,6 +764,54 @@ function setStatus(connected) {
     }
 }
 
+function renderLastSentValues(v1, v2, v3, v4) {
+    // Backend now stores history; we keep this function as a no-op for compatibility.
+}
+
+function syncSendHistory(serverHistory) {
+    sendHistory.length = 0;
+    serverHistory.forEach(item => {
+        sendHistory.push({
+            id: item.id,
+            language: languageMap[item.msg1] || `${item.msg1}`,
+            size: `${item.msg2}`,
+            time: `${item.msg3}`,
+            intensity: `${item.msg4}`
+        });
+    });
+}
+
+function renderSentHistory() {
+    const holder = document.getElementById("lastSentValues");
+
+    if (!sendHistory.length) {
+        holder.className = "last-sent-placeholder";
+        holder.textContent = "No values sent yet.";
+        return;
+    }
+
+    holder.className = "last-sent-values";
+    holder.innerHTML = sendHistory.map((entry, idx) => `
+        <div class="sent-entry">
+            <div class="sent-entry-head">
+                <span class="sent-entry-title">Send #${entry.id}</span>
+                <span class="sent-entry-time">Stored in backend</span>
+            </div>
+            <div class="sent-entry-grid">
+                <div class="sent-metric"><span>Language</span><span>${entry.language}</span></div>
+                <div class="sent-metric"><span>Size</span><span>${entry.size}</span></div>
+                <div class="sent-metric"><span>Time</span><span>${entry.time}</span></div>
+                <div class="sent-metric"><span>Intensity</span><span>${entry.intensity}</span></div>
+            </div>
+        </div>
+    `).join("");
+}
+
+function loadSendHistory() {
+    // Backend history is fetched in updateData().
+    renderSentHistory();
+}
+
 async function sendTrigger() {
     const v1 = parseInt(document.getElementById("input1").value);  // language: 1/2/3
     const v2 = document.getElementById("input2").value;
@@ -596,6 +830,7 @@ async function sendTrigger() {
         });
         const data = await res.json();
         console.log("Trigger response:", data);
+        await updateData();
         alert("Sent to ESP32!");
     } catch (err) {
         console.error("Trigger error:", err);
@@ -609,6 +844,7 @@ async function sendTrigger() {
 setInterval(updateData, 200);
 updateData();
 updateTitle();
+loadSendHistory();
 
 </script>
 
