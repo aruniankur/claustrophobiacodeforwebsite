@@ -126,19 +126,44 @@ def osc_sensor_handler(unused_addr, *args):
 
 
 def _finalize_capture_if_expired(now_ts):
-    """Finalize active capture by time even if no new OSC packet arrives."""
+    """Advance capture clock and finalize when remaining active time reaches zero.
+
+    Timer runs only while finger is detected. If finger is not present,
+    capture is paused by extending end_ts by the paused duration.
+    """
     global active_capture
 
     if not active_capture:
         return
 
+    entry = sent_values_history.get(active_capture["entry_id"])
+    if not entry:
+        active_capture = None
+        return
+
+    # During delay period (e.g., experiment +2s), no pause/resume logic is needed yet.
+    if now_ts < active_capture["start_ts"]:
+        active_capture["last_tick_ts"] = now_ts
+        return
+
+    last_tick_ts = active_capture.get("last_tick_ts", active_capture["start_ts"])
+    if last_tick_ts < active_capture["start_ts"]:
+        last_tick_ts = active_capture["start_ts"]
+
+    delta = max(0.0, now_ts - last_tick_ts)
+
+    # Pause timer progression while finger is not detected.
+    if delta > 0 and int(sensor_data.get("finger", 0)) != 1:
+        active_capture["end_ts"] += delta
+        entry["capture_end_at"] = datetime.utcfromtimestamp(active_capture["end_ts"]).isoformat() + "Z"
+
+    active_capture["last_tick_ts"] = now_ts
+
     if now_ts <= active_capture["end_ts"]:
         return
 
-    entry = sent_values_history.get(active_capture["entry_id"])
-    if entry:
-        entry["capture_complete"] = True
-        entry["capture_completed_at"] = datetime.utcnow().isoformat() + "Z"
+    entry["capture_complete"] = True
+    entry["capture_completed_at"] = datetime.utcnow().isoformat() + "Z"
     active_capture = None
 
 
@@ -276,7 +301,8 @@ def trigger():
                 "entry_id": new_id,
                 "mode": "experiment",
                 "start_ts": capture_start_ts,
-                "end_ts": capture_end_ts
+                "end_ts": capture_end_ts,
+                "last_tick_ts": time.time()
             }
 
             # Keep memory bounded by removing oldest records.
@@ -319,7 +345,8 @@ def control_capture():
                 "entry_id": "control",
                 "mode": "control",
                 "start_ts": capture_start_ts,
-                "end_ts": capture_end_ts
+                "end_ts": capture_end_ts,
+                "last_tick_ts": time.time()
             }
 
         print("[CONTROL] Capture started for 20s")

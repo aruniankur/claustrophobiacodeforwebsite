@@ -14,7 +14,8 @@
     }
 
     .wrap {
-        max-width: 1100px;
+        width: 96vw;
+        max-width: 1800px;
         margin: 0 auto;
         background: #f8faff;
         border-radius: 14px;
@@ -161,6 +162,22 @@ function setHtml(id, html) {
     document.getElementById(id).innerHTML = html;
 }
 
+function repeatSeriesToLength(baseSeries, targetLength) {
+    if (!Array.isArray(baseSeries) || baseSeries.length === 0 || targetLength <= 0) {
+        return [];
+    }
+
+    if (baseSeries.length >= targetLength) {
+        return baseSeries.slice(0, targetLength);
+    }
+
+    const out = [];
+    for (let i = 0; i < targetLength; i += 1) {
+        out.push(baseSeries[i % baseSeries.length]);
+    }
+    return out;
+}
+
 function buildSingleChart(canvasId, label, expVals, controlVals, expColor) {
     const maxLen = Math.max(expVals.length, controlVals.length);
     const labels = Array.from({ length: maxLen }, (_, i) => i + 1);
@@ -238,6 +255,10 @@ async function init() {
         const controlRedVals = Array.isArray(control.red_values) ? control.red_values : [];
         const controlBpmVals = Array.isArray(control.bpm_values) ? control.bpm_values : [];
 
+        const controlIrRepeated = repeatSeriesToLength(controlIrVals, irVals.length);
+        const controlRedRepeated = repeatSeriesToLength(controlRedVals, redVals.length);
+        const controlBpmRepeated = repeatSeriesToLength(controlBpmVals, bpmVals.length);
+
         setHtml("settingsCard", `
             <div class="meta-row"><span>Language</span><span>${languageMap[data.msg1] || data.msg1}</span></div>
             <div class="meta-row"><span>Size</span><span>${data.msg2}</span></div>
@@ -257,9 +278,9 @@ async function init() {
             <div class="meta-row"><span>Control Samples</span><span>${controlIrVals.length}</span></div>
         `);
 
-        buildSingleChart("chartIR", "IR", irVals, controlIrVals, "#4f67d8");
-        buildSingleChart("chartRED", "RED", redVals, controlRedVals, "#d64b4b");
-        buildSingleChart("chartBPM", "BPM", bpmVals, controlBpmVals, "#22a266");
+        buildSingleChart("chartIR", "IR", irVals, controlIrRepeated, "#4f67d8");
+        buildSingleChart("chartRED", "RED", redVals, controlRedRepeated, "#d64b4b");
+        buildSingleChart("chartBPM", "BPM", bpmVals, controlBpmRepeated, "#22a266");
         document.getElementById("statusMsg").textContent = irVals.length
             ? "Loaded experiment and control samples for comparison."
             : "No samples captured yet for this send.";
